@@ -10,7 +10,7 @@ import type {
 } from "@university-diplomas/common";
 
 /** Base URL for the issuer-api backend */
-const API_BASE = import.meta.env.VITE_ISSUER_API_URL ?? "http://localhost:3001";
+const API_BASE = import.meta.env.VITE_ISSUER_API_URL ?? "http://localhost:3002";
 const AGENT_BASE = `${API_BASE}/api/agent`;
 
 // ── DID Management ─────────────────────────────────────────────────────────────

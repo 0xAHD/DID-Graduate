@@ -10,7 +10,7 @@ export default defineConfig({
     proxy: {
       // Proxy /api calls to the issuer-api backend (avoids CORS in dev)
       "/api": {
-        target: "http://localhost:3010",
+        target: "http://localhost:3002",
         changeOrigin: true,
       },
     },
