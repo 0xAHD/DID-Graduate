@@ -1,0 +1,189 @@
+# ─── DEV Docker Compose ────────────────────────────────────────────────────────
+#
+# This profile runs Identus with an IN-MEMORY PRISM Node ledger.
+# • No Cardano node required — DIDs are stored locally (long-form only)
+# • Perfect for iterating on the credential issuance & presentation flows
+# • Cardano VC hash writing still works via Blockfrost (see issuer-api)
+#
+# Usage:
+#   cp infrastructure/.env.example .env   # fill in BLOCKFROST_PROJECT_ID etc.
+#   pnpm run infra:dev
+#
+# After starting, run:
+#   pnpm run health                        # confirms all containers are healthy
+#   bash scripts/01-init-university-did.sh # creates + publishes university DID
+#   bash scripts/02-register-diploma-schema.sh
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Shared PostgreSQL (issuer + verifier each get isolated databases) ────────
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres-init-script.sh:/docker-entrypoint-initdb.d/init-script.sh
+      - ./postgres-max_conns.sql:/docker-entrypoint-initdb.d/max_conns.sql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "issuer_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── PRISM Node (in-memory ledger for dev) ──────────────────────────────────
+  prism-node:
+    image: docker.io/inputoutput/prism-node:${PRISM_NODE_VERSION:-2.5.0}
+    restart: unless-stopped
+    environment:
+      NODE_PSQL_HOST: db
+      NODE_PSQL_PORT: 5432
+      NODE_PSQL_DB: node_db
+      NODE_PSQL_USERNAME: postgres
+      NODE_PSQL_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # In-memory ledger — no Cardano node needed in dev mode
+      NODE_LEDGER: in-memory
+      NODE_REFRESH_AND_SUBMIT_PERIOD: 5s
+      NODE_MOVE_SCHEDULED_TO_PENDING_PERIOD: 5s
+      NODE_WALLET_MAX_TRIE_LEVELS: 5
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Issuer Cloud Agent ─────────────────────────────────────────────────────
+  issuer-agent:
+    image: docker.io/hyperledgeridentus/identus-cloud-agent:${AGENT_VERSION:-2.1.0}
+    restart: unless-stopped
+    ports:
+      - "8000:8085"   # REST API  → http://localhost:8000/cloud-agent
+      - "8001:8090"   # DIDComm   → http://localhost:8001
+    environment:
+      #  Database
+      POLLUX_DB_HOST: db
+      POLLUX_DB_PORT: 5432
+      POLLUX_DB_NAME: issuer_pollux
+      POLLUX_DB_USER: postgres
+      POLLUX_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      CONNECT_DB_HOST: db
+      CONNECT_DB_PORT: 5432
+      CONNECT_DB_NAME: issuer_connect
+      CONNECT_DB_USER: postgres
+      CONNECT_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AGENT_DB_HOST: db
+      AGENT_DB_PORT: 5432
+      AGENT_DB_NAME: issuer_agent
+      AGENT_DB_USER: postgres
+      AGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      #  PRISM Node
+      PRISM_NODE_HOST: prism-node
+      PRISM_NODE_PORT: 50053
+      #  URLs (these must resolve from wherever clients connect)
+      POLLUX_STATUS_LIST_REGISTRY_PUBLIC_URL: http://localhost:8000
+      DIDCOMM_SERVICE_URL: http://localhost:3002/didcomm
+      REST_SERVICE_URL: http://localhost:8000
+      #  Use postgres for secret storage (avoids requiring HashiCorp Vault)
+      SECRET_STORAGE_BACKEND: postgres
+      #  API key auth (disabled for dev — enable for prod)
+      API_KEY_ENABLED: "false"
+      DEFAULT_WALLET_ENABLED: "true"
+      DEFAULT_WALLET_AUTH_API_KEY: ${ISSUER_API_KEY:-issuer-dev-key}
+    depends_on:
+      db:
+        condition: service_healthy
+      prism-node:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/_system/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ── Verifier Cloud Agent ───────────────────────────────────────────────────
+  verifier-agent:
+    image: docker.io/hyperledgeridentus/identus-cloud-agent:${AGENT_VERSION:-2.1.0}
+    restart: unless-stopped
+    ports:
+      - "9000:8085"   # REST API  → http://localhost:9000/cloud-agent
+      - "9001:8090"   # DIDComm   → http://localhost:9001
+    environment:
+      POLLUX_DB_HOST: db
+      POLLUX_DB_PORT: 5432
+      POLLUX_DB_NAME: verifier_pollux
+      POLLUX_DB_USER: postgres
+      POLLUX_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      CONNECT_DB_HOST: db
+      CONNECT_DB_PORT: 5432
+      CONNECT_DB_NAME: verifier_connect
+      CONNECT_DB_USER: postgres
+      CONNECT_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AGENT_DB_HOST: db
+      AGENT_DB_PORT: 5432
+      AGENT_DB_NAME: verifier_agent
+      AGENT_DB_USER: postgres
+      AGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PRISM_NODE_HOST: prism-node
+      PRISM_NODE_PORT: 50053
+      POLLUX_STATUS_LIST_REGISTRY_PUBLIC_URL: http://localhost:9000
+      DIDCOMM_SERVICE_URL: http://localhost:9001
+      REST_SERVICE_URL: http://localhost:9000
+      #  Use postgres for secret storage (avoids requiring HashiCorp Vault)
+      SECRET_STORAGE_BACKEND: postgres
+      API_KEY_ENABLED: "false"
+      DEFAULT_WALLET_ENABLED: "true"
+      DEFAULT_WALLET_AUTH_API_KEY: ${VERIFIER_API_KEY:-verifier-dev-key}
+    depends_on:
+      db:
+        condition: service_healthy
+      prism-node:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/_system/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ── MongoDB (for Mediator) ─────────────────────────────────────────────────
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-admin}
+      MONGO_INITDB_DATABASE: mediator
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo-initdb.js:/docker-entrypoint-initdb.d/mongo-initdb.js:ro
+
+  # ── DIDComm Mediator ───────────────────────────────────────────────────────
+  # The mediator routes DIDComm messages to the student wallet when it's offline.
+  # After starting, fetch its Peer DID: curl http://localhost:8080/invitation | jq .from
+  # Then paste the DID into your root .env as VITE_MEDIATOR_PEER_DID
+  identus-mediator:
+    image: docker.io/hyperledgeridentus/identus-mediator:${MEDIATOR_VERSION:-1.1.0}
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # DIDComm endpoint + /invitation
+    environment:
+      # Demo keys — replace with freshly generated keys for any shared environment
+      KEY_AGREEMENT_D: Z6D8LduZgZ6LnrOHPrMTS6uU2u5Btsrk1SGs4fn8M7c
+      KEY_AGREEMENT_X: Sr4SkIskjN_VdKTn0zkjYbhGTWArdUNE4j_DmUpnQGw
+      KEY_AUTHENTICATION_D: INXCnxFEl0atLIIQYruHzGd5sUivMRyQOzu87qVerug
+      KEY_AUTHENTICATION_X: MBjnXZxkMcoQVVL21hahWAw43RuAG-i64ipbeKKqwoA
+      SERVICE_ENDPOINTS: http://host.docker.internal:8080
+      MONGODB_USER: admin
+      MONGODB_PASSWORD: ${MONGO_PASSWORD:-admin}
+      MONGODB_PROTOCOL: mongodb
+      MONGODB_HOST: mongo
+      MONGODB_PORT: 27017
+      MONGODB_DB_NAME: mediator
+    depends_on:
+      - mongo
+
+volumes:
+  pg_data:
+  mongo_data:

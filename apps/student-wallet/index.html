@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Diploma Wallet</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, sans-serif; background: #f8fafc; color: #1a202c; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      window.onerror = function(msg, src, line, col, err) {
+        document.getElementById('root').innerHTML =
+          '<div style="padding:2rem;font-family:monospace;color:crimson">' +
+          '<h2>JS Error (window.onerror)</h2>' +
+          '<pre>' + msg + '\n\nSource: ' + src + ':' + line + ':' + col +
+          (err ? '\n\nStack:\n' + err.stack : '') + '</pre></div>';
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        document.getElementById('root').innerHTML =
+          '<div style="padding:2rem;font-family:monospace;color:crimson">' +
+          '<h2>Unhandled Promise Rejection</h2>' +
+          '<pre>' + (e.reason?.stack || e.reason || String(e.reason)) + '</pre></div>';
+      });
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

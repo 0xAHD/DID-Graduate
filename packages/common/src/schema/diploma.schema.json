@@ -1,0 +1,36 @@
+{
+  "$id": "https://university.example.com/schemas/diploma/1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "studentName": {
+      "type": "string"
+    },
+    "studentId": {
+      "type": "string"
+    },
+    "degree": {
+      "type": "string"
+    },
+    "graduationDate": {
+      "type": "string"
+    },
+    "gpa": {
+      "type": "number"
+    },
+    "universityName": {
+      "type": "string"
+    },
+    "universityDid": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "studentName",
+    "studentId",
+    "degree",
+    "graduationDate",
+    "universityName",
+    "universityDid"
+  ]
+}

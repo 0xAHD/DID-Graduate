@@ -1,0 +1,197 @@
+# ─── PREPROD Docker Compose ────────────────────────────────────────────────────
+#
+# This profile anchors DIDs to Cardano preprod via the PRISM Node.
+#
+# Prerequisites before running:
+#   1. Set BLOCKFROST_PROJECT_ID in your .env (preprod project from blockfrost.io)
+#   2. Set CARDANO_WALLET_MNEMONIC in your .env (24-word mnemonic)
+#   3. Fund your preprod address with tADA: https://docs.cardano.org/cardano-testnets/tools/faucet
+#
+# IMPORTANT: The PRISM Node on Cardano preprod requires a cardano-node running
+# in preprod mode OR access to a Cardano node provider via db-sync. Running a
+# full Cardano node with db-sync locally takes ~50 GB disk and ~6 GB RAM.
+#
+# For a lighter approach, consider:
+#   • Demeter.run — managed Cardano node + db-sync (https://demeter.run)
+#   • Your own cloud VM with cardano-node + db-sync
+#
+# The PRISM Node environment variables below assume db-sync access.
+# Replace DB_SYNC_* values with your hosted db-sync connection string.
+#
+# Once the PRISM Node is connected to preprod, DID publication transactions
+# will appear on https://preprod.cardanoscan.io within ~20 seconds.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_MULTIPLE_DATABASES: >-
+        issuer_pollux,issuer_connect,issuer_agent,
+        verifier_pollux,verifier_connect,verifier_agent,
+        node_db
+    volumes:
+      - pg_data_preprod:/var/lib/postgresql/data
+      - ./postgres-init-script.sh:/docker-entrypoint-initdb.d/init-script.sh
+      - ./postgres-max_conns.sql:/docker-entrypoint-initdb.d/max_conns.sql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "issuer_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── PRISM Node (Cardano preprod) ───────────────────────────────────────────
+  # Connects to Cardano preprod via db-sync. Publishes DID operations as
+  # Cardano transactions with metadata label 21325.
+  prism-node:
+    image: docker.io/inputoutput/prism-node:${PRISM_NODE_VERSION:-2.2.1}
+    restart: unless-stopped
+    environment:
+      NODE_PSQL_HOST: db
+      NODE_PSQL_PORT: 5432
+      NODE_PSQL_DB: node_db
+      NODE_PSQL_USERNAME: postgres
+      NODE_PSQL_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # Switch to Cardano ledger
+      NODE_LEDGER: cardano
+      NODE_CARDANO_NETWORK: ${CARDANO_NETWORK:-preprod}
+      NODE_REFRESH_AND_SUBMIT_PERIOD: 30s
+      NODE_MOVE_SCHEDULED_TO_PENDING_PERIOD: 30s
+      NODE_WALLET_MAX_TRIE_LEVELS: 5
+      # ── Cardano Wallet (for signing DID txs) ──
+      # The PRISM Node needs a funded Cardano address to pay for DID publication.
+      # Provide either a 24-word mnemonic or an existing wallet ID from cardano-wallet.
+      NODE_CARDANO_WALLET_MNEMONIC: ${CARDANO_WALLET_MNEMONIC}
+      NODE_CARDANO_WALLET_PASSPHRASE: ""
+      # ── db-sync connection (replace with your hosted db-sync details) ──
+      NODE_CARDANO_DB_SYNC_HOST: ${DBSYNC_HOST:-your-dbsync-host}
+      NODE_CARDANO_DB_SYNC_PORT: ${DBSYNC_PORT:-5432}
+      NODE_CARDANO_DB_SYNC_DATABASE: ${DBSYNC_DB:-cexplorer}
+      NODE_CARDANO_DB_SYNC_USERNAME: ${DBSYNC_USER:-dbsync}
+      NODE_CARDANO_DB_SYNC_PASSWORD: ${DBSYNC_PASSWORD:-dbsync}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  issuer-agent:
+    image: docker.io/hyperledgeridentus/identus-cloud-agent:${AGENT_VERSION:-2.1.0}
+    restart: unless-stopped
+    ports:
+      - "8000:8085"
+      - "8001:8090"
+    environment:
+      POLLUX_DB_HOST: db
+      POLLUX_DB_PORT: 5432
+      POLLUX_DB_NAME: issuer_pollux
+      POLLUX_DB_USER: postgres
+      POLLUX_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      CONNECT_DB_HOST: db
+      CONNECT_DB_PORT: 5432
+      CONNECT_DB_NAME: issuer_connect
+      CONNECT_DB_USER: postgres
+      CONNECT_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AGENT_DB_HOST: db
+      AGENT_DB_PORT: 5432
+      AGENT_DB_NAME: issuer_agent
+      AGENT_DB_USER: postgres
+      AGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PRISM_NODE_HOST: prism-node
+      PRISM_NODE_PORT: 50053
+      POLLUX_STATUS_LIST_REGISTRY_PUBLIC_URL: http://localhost:8000
+      DIDCOMM_SERVICE_URL: http://localhost:8001
+      REST_SERVICE_URL: http://localhost:8000
+      API_KEY_ENABLED: "true"
+      DEFAULT_WALLET_ENABLED: "true"
+      DEFAULT_WALLET_AUTH_API_KEY: ${ISSUER_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      prism-node:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/cloud-agent/_system/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  verifier-agent:
+    image: docker.io/hyperledgeridentus/identus-cloud-agent:${AGENT_VERSION:-2.1.0}
+    restart: unless-stopped
+    ports:
+      - "9000:8085"
+      - "9001:8090"
+    environment:
+      POLLUX_DB_HOST: db
+      POLLUX_DB_PORT: 5432
+      POLLUX_DB_NAME: verifier_pollux
+      POLLUX_DB_USER: postgres
+      POLLUX_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      CONNECT_DB_HOST: db
+      CONNECT_DB_PORT: 5432
+      CONNECT_DB_NAME: verifier_connect
+      CONNECT_DB_USER: postgres
+      CONNECT_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AGENT_DB_HOST: db
+      AGENT_DB_PORT: 5432
+      AGENT_DB_NAME: verifier_agent
+      AGENT_DB_USER: postgres
+      AGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PRISM_NODE_HOST: prism-node
+      PRISM_NODE_PORT: 50053
+      POLLUX_STATUS_LIST_REGISTRY_PUBLIC_URL: http://localhost:9000
+      DIDCOMM_SERVICE_URL: http://localhost:9001
+      REST_SERVICE_URL: http://localhost:9000
+      API_KEY_ENABLED: "true"
+      DEFAULT_WALLET_ENABLED: "true"
+      DEFAULT_WALLET_AUTH_API_KEY: ${VERIFIER_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      prism-node:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/cloud-agent/_system/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-admin}
+      MONGO_INITDB_DATABASE: mediator
+    volumes:
+      - mongo_data_preprod:/data/db
+      - ./mongo-initdb.js:/docker-entrypoint-initdb.d/mongo-initdb.js:ro
+
+  identus-mediator:
+    image: docker.io/hyperledgeridentus/identus-mediator:${MEDIATOR_VERSION:-1.1.0}
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      KEY_AGREEMENT_D: Z6D8LduZgZ6LnrOHPrMTS6uU2u5Btsrk1SGs4fn8M7c
+      KEY_AGREEMENT_X: Sr4SkIskjN_VdKTn0zkjYbhGTWArdUNE4j_DmUpnQGw
+      KEY_AUTHENTICATION_D: INXCnxFEl0atLIIQYruHzGd5sUivMRyQOzu87qVerug
+      KEY_AUTHENTICATION_X: MBjnXZxkMcoQVVL21hahWAw43RuAG-i64ipbeKKqwoA
+      SERVICE_ENDPOINTS: http://localhost:8080;ws://localhost:8080/ws
+      MONGODB_USER: admin
+      MONGODB_PASSWORD: ${MONGO_PASSWORD:-admin}
+      MONGODB_PROTOCOL: mongodb
+      MONGODB_HOST: mongo
+      MONGODB_PORT: 27017
+      MONGODB_DB_NAME: mediator
+    depends_on:
+      - mongo
+
+volumes:
+  pg_data_preprod:
+  mongo_data_preprod:

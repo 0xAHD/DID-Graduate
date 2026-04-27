@@ -1,0 +1,44 @@
+{
+  "name": "university-diplomas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "University diploma issuance using Hyperledger Identus + Cardano",
+  "scripts": {
+    "dev": "pnpm run --parallel --filter \"./apps/*\" dev",
+    "dev:issuer": "pnpm run --filter issuer-portal dev & pnpm run --filter issuer-api dev",
+    "dev:wallet": "pnpm run --filter student-wallet dev",
+    "dev:verifier": "pnpm run --filter verifier-portal dev",
+    "build": "pnpm run --recursive build",
+    "lint": "pnpm run --recursive lint",
+    "type-check": "pnpm run --recursive type-check",
+    "infra:dev": "docker compose -f infrastructure/docker-compose.dev.yml --env-file .env up -d",
+    "infra:stop": "docker compose -f infrastructure/docker-compose.dev.yml down",
+    "infra:logs": "docker compose -f infrastructure/docker-compose.dev.yml logs -f",
+    "infra:preprod": "docker compose -f infrastructure/docker-compose.preprod.yml --env-file .env up -d",
+    "health": "node scripts/health-check.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@swc/core",
+      "bufferutil",
+      "chacha-native",
+      "core-js",
+      "cpu-features",
+      "esbuild",
+      "node-datachannel",
+      "postinstall-postinstall",
+      "protobufjs",
+      "rxdb",
+      "ssh2",
+      "utf-8-validate",
+      "utp-native"
+    ]
+  }
+}

@@ -1,0 +1,316 @@
+﻿# University Diploma Verifiable Credentials — Setup Guide
+
+This system lets a university **issue digital diplomas** that students can store in a browser wallet and employers can **instantly verify** — without calling the university. Everything is cryptographically signed. No PDFs, no fraud.
+
+> **No prior knowledge of blockchain, DIDs, or cryptography is required to run this.** Just follow the steps in order.
+
+---
+
+## What is a DID?
+
+A **DID** (Decentralised Identifier) is like an email address that nobody can fake or take away from you, because it is controlled by a private key rather than a central server. In this system:
+
+- The **university** has a DID — it is the issuer of diplomas.
+- The **student** has a DID — it is the recipient of their diploma credential.
+- When the university signs a diploma with its DID, anyone can verify the signature is genuine without contacting the university.
+
+---
+
+## How the flow works (plain English)
+
+1. The **university admin** opens the Issuer Portal and fills in a student's details (name, degree, GPA, etc.) and clicks **Issue**.
+2. The portal generates a one-time invitation link (like a QR code or URL).
+3. The **student** opens the Student Wallet in a browser, pastes the invitation link, and clicks **Connect & Claim**. The wallet automatically accepts the connection and downloads the signed diploma.
+4. The diploma now lives in the student's browser wallet, cryptographically signed by the university's DID.
+5. An **employer** opens the Verifier Portal and starts a verification session. The student presents their diploma from the wallet.
+6. The verifier portal checks the signature and displays ✓ Verified with all the diploma fields.
+
+---
+
+## Architecture overview
+
+```
+Issuer Portal (port 5173)  ──REST──►  Issuer API (port 3002)  ──►  Issuer Cloud Agent (port 8000)
+                                                                              │
+                                                               DIDComm (encrypted messaging)
+                                                                              │
+Student Wallet (port 5174) ◄──────────────────────────────────────────────────
+                                  via Mediator (port 8080)
+
+Verifier Portal (port 5175) ──REST──►  Verifier Cloud Agent (port 9000)
+```
+
+All the cryptography and DIDComm messaging is handled by **Hyperledger Identus** (the Cloud Agent). The frontends are plain React apps.
+
+---
+
+## What you need installed
+
+| Tool | Why | Install |
+|------|-----|---------|
+| **Docker Desktop** | Runs all backend services | [docker.com/get-started](https://www.docker.com/get-started) |
+| **Node.js 20+** | Runs the frontend dev servers | [nodejs.org](https://nodejs.org) |
+| **pnpm 9+** | Package manager for this monorepo | `npm install -g pnpm` |
+| **Git Bash** (Windows only) | Runs the `.sh` setup scripts | Included with [Git for Windows](https://git-scm.com/download/win) |
+
+After installing Docker Desktop, make sure it is **running** (you should see the Docker icon in your system tray).
+
+---
+
+## Step 1 — Clone and install dependencies
+
+Open a terminal in the project folder and run:
+
+```bash
+pnpm install
+```
+
+This installs all JavaScript dependencies for every app in the monorepo. It takes about a minute the first time.
+
+---
+
+## Step 2 — Create your environment file
+
+```bash
+cp .env.example .env
+```
+
+Now open `.env` in a text editor. It contains all the settings for the system. Most values are pre-filled for local development. You **must** fill in the following:
+
+### Required for Cardano on-chain receipts (optional feature)
+
+```env
+# Get a free API key at https://blockfrost.io
+# Click "Add Project", select "Cardano preprod", copy the project ID
+BLOCKFROST_PROJECT_ID=preprodXXXXXXXXXXXXXXXXXX
+
+# A 24-word seed phrase for a Cardano preprod wallet
+# The wallet pays a tiny transaction fee each time a diploma hash is written on-chain
+# Get free test ADA from: https://docs.cardano.org/cardano-testnets/tools/faucet
+CARDANO_WALLET_MNEMONIC="word1 word2 word3 ... word24"
+```
+
+> If you skip the Cardano section, diploma issuance still works — the on-chain hash step just does nothing.
+
+### Set your university name
+
+```env
+VITE_UNIVERSITY_NAME=MIT
+```
+
+Leave all other values as-is for now. The next steps will auto-fill the remaining blank values.
+
+---
+
+## Step 3 — Start the backend services
+
+```bash
+pnpm run infra:dev
+```
+
+This starts the following Docker containers:
+
+| Container | What it does |
+|-----------|-------------|
+| `issuer-agent` | Cloud agent that issues diploma credentials (port 8000) |
+| `verifier-agent` | Cloud agent that verifies credentials (port 9000) |
+| `mediator` | Routes encrypted DIDComm messages between agents and wallets (port 8080) |
+| `prism-node` | Anchors DIDs to a local in-memory ledger (simulates Cardano) |
+| `postgres` | Database for the cloud agents |
+| `mongo` | Database for the mediator |
+
+**Wait about 60 seconds** for all containers to become ready, then run:
+
+```bash
+pnpm run health
+```
+
+You should see something like:
+
+```
+✅  Issuer Cloud Agent  : OK
+✅  Verifier Cloud Agent: OK
+✅  Mediator            : OK
+
+Mediator Peer DID:
+did:peer:2.Ez6LSghwSE437wnDE1pt3X6hVDUQ...
+```
+
+Copy the full `did:peer:2.Ez6...` value. Open `.env` and paste it:
+
+```env
+VITE_MEDIATOR_PEER_DID=did:peer:2.Ez6LSghwSE437wnDE1pt3X6hVDUQ...
+```
+
+> **Why?** The student wallet needs to know the mediator's address to receive messages. The mediator DID encodes that address in a cryptographic format.
+
+---
+
+## Step 4 — Create the university DID and diploma schema
+
+Run these two scripts **in order**:
+
+```bash
+bash scripts/01-init-university-did.sh
+```
+
+This creates a cryptographic identity (DID) for the university and publishes it to the local ledger. When it finishes it automatically writes `VITE_UNIVERSITY_DID=did:prism:...` into your `.env` file.
+
+```bash
+bash scripts/02-register-diploma-schema.sh
+```
+
+This registers the diploma data structure (what fields a diploma contains) with the issuer agent. When it finishes it automatically writes `VITE_DIPLOMA_SCHEMA_ID=http://localhost:...` into your `.env` file.
+
+After both scripts, your `.env` should now have the following filled in:
+
+```env
+VITE_MEDIATOR_PEER_DID=did:peer:2...     ← from Step 3
+VITE_UNIVERSITY_DID=did:prism:0ca3...    ← from script 01
+VITE_DIPLOMA_SCHEMA_ID=http://localhost:8085/schema-registry/schemas/...  ← from script 02
+```
+
+---
+
+## Step 5 — Start the applications
+
+```bash
+pnpm run dev
+```
+
+This starts four development servers in parallel. Once they are ready, open these URLs in your browser:
+
+| App | URL | Who uses it |
+|-----|-----|-------------|
+| Issuer Portal | http://localhost:5173 | University admin |
+| Student Wallet | http://localhost:5174 | Student |
+| Verifier Portal | http://localhost:5175 | Employer / verifier |
+
+> Keep the terminal open. Press `Ctrl+C` to stop all servers.
+
+---
+
+## Step 6 — Issue your first diploma (end-to-end test)
+
+### 6a. Issue the diploma (Issuer Portal)
+
+1. Open **http://localhost:5173** in a browser tab.
+2. Click **Issue Diploma** in the left sidebar.
+3. Fill in the student details (any values are fine for testing).
+4. Click **Issue Diploma**.
+5. An invitation URL will appear. **Copy it**.
+
+### 6b. Accept the diploma (Student Wallet)
+
+1. Open **http://localhost:5174** in a **different** browser tab.
+   > First visit: the wallet initialises itself. This takes 5–10 seconds.
+2. Click **Claim Credential** in the sidebar.
+3. Paste the invitation URL into the input field.
+4. Click **Connect & Claim**.
+5. Wait 15–30 seconds. The diploma should appear in **My Credentials**.
+
+> If nothing appears after 60 seconds, open the browser developer console (F12 → Console tab) and look for red error messages.
+
+### 6c. Verify the diploma (Verifier Portal)
+
+1. Open **http://localhost:5175** in a browser tab.
+2. Click **Start Verification Session**.
+3. Copy the invitation URL shown.
+4. In the Student Wallet, click **Present Credential**, paste the URL, and click **Present**.
+5. The Verifier Portal should show ✅ **Verified** with the diploma fields.
+
+---
+
+## Issuer Dashboard
+
+The **Dashboard** tab in the Issuer Portal shows every diploma issued. Click any row to open a detail panel showing:
+
+- Student name, ID, degree, GPA, graduation date
+- Credential status (`Offer Sent` → `Issued ✓`)
+- The student's DID (their cryptographic identity)
+- The JWT token (the raw signed credential)
+- Record ID, Connection ID, Thread ID
+
+---
+
+## Troubleshooting
+
+### "Agent failed to start" in the Student Wallet
+- Make sure `VITE_MEDIATOR_PEER_DID` is set in `.env` and you restarted `pnpm run dev` after editing the file.
+- Try clearing your browser's site data: DevTools → Application → Storage → **Clear site data**.
+
+### "CORS error" in the browser console
+- The issuer-api backend must be running on port 3002. Check the terminal where you ran `pnpm run dev`.
+
+### Diploma never arrives in the wallet
+- The mediator must be healthy. Run `pnpm run health` again.
+- Check that the invitation URL was copied **completely** (these are long).
+- Check Docker is still running: `docker ps` should show 6 containers.
+
+### Scripts fail on Windows
+- Run the `.sh` scripts inside **Git Bash**, not PowerShell or cmd.
+- Right-click the `scripts/` folder → Git Bash Here, then run `bash 01-init-university-did.sh`.
+
+### Containers fail to start
+```bash
+pnpm run infra:logs
+```
+Common causes: another service is using ports 8000, 9000, or 8080. Stop it, then re-run `pnpm run infra:dev`.
+
+### Starting fresh (reset everything)
+```bash
+pnpm run infra:stop
+docker volume prune -f
+pnpm run infra:dev
+```
+Then re-run Steps 3–4.
+
+---
+
+## Available commands
+
+| Command | What it does |
+|---------|-------------|
+| `pnpm run infra:dev` | Start all Docker backend containers |
+| `pnpm run infra:stop` | Stop and remove all containers |
+| `pnpm run infra:logs` | Stream all container logs |
+| `pnpm run health` | Check that all services are healthy |
+| `pnpm run dev` | Start all four apps (Issuer Portal, Student Wallet, Verifier Portal, Issuer API) |
+| `pnpm run dev:issuer` | Start only the Issuer Portal + API |
+| `pnpm run dev:wallet` | Start only the Student Wallet |
+| `pnpm run dev:verifier` | Start only the Verifier Portal |
+| `pnpm run build` | Build all apps for production |
+
+---
+
+## How Cardano anchoring works (optional reading)
+
+Each time a diploma is issued, the `issuer-api` backend:
+
+1. Computes a SHA-256 hash of the signed JWT credential.
+2. Submits a Cardano transaction to the **preprod testnet** with the hash embedded in the transaction metadata under label `674`.
+
+This creates an **immutable public record** that this exact credential was issued at this exact time. Even if the university website goes down, the hash on Cardano is permanent. A verifier can re-hash the JWT and confirm it matches the on-chain record.
+
+---
+
+## Repo structure
+
+```
+identus/
+├── apps/
+│   ├── issuer-api/          Express backend (proxy to Cloud Agent + Cardano writer)
+│   ├── issuer-portal/       University admin React app (port 5173)
+│   ├── student-wallet/      Student browser wallet (port 5174)
+│   └── verifier-portal/     Employer verifier React app (port 5175)
+├── packages/
+│   └── common/              Shared TypeScript types and diploma JSON schema
+├── infrastructure/
+│   ├── docker-compose.dev.yml     Local dev (in-memory PRISM node)
+│   └── docker-compose.preprod.yml Cardano preprod (real on-chain DIDs)
+├── scripts/
+│   ├── health-check.mjs           Check all services + print Mediator DID
+│   ├── 01-init-university-did.sh  Create + publish university DID
+│   └── 02-register-diploma-schema.sh  Register diploma schema
+└── .env.example             Copy to .env and fill in your values
+```
