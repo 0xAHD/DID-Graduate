@@ -18,12 +18,16 @@ A **DID** (Decentralised Identifier) is like an email address that nobody can fa
 
 ## How the flow works (plain English)
 
-1. The **university admin** opens the Issuer Portal and fills in a student's details (name, degree, GPA, etc.) and clicks **Issue**.
-2. The portal generates a one-time invitation link (like a QR code or URL).
-3. The **student** opens the Student Wallet in a browser, pastes the invitation link, and clicks **Connect & Claim**. The wallet automatically accepts the connection and downloads the signed diploma.
-4. The diploma now lives in the student's browser wallet, cryptographically signed by the university's DID.
+1. The **student** registers an account in the Student Wallet (email + password). On first login the wallet auto-connects to the university's issuer agent via DIDComm.
+2. The **university admin** opens the Issuer Portal → **Students** tab and sees all registered students. Connected students show a green "Wallet linked" badge.
+3. The admin clicks **Issue Diploma** next to a student, fills in degree details, and clicks **Issue Diploma ✓**.
+   - If the student's wallet is **open**: the credential is delivered in real time (≤30 s).
+   - If the student's wallet is **offline**: the diploma is queued and auto-delivered the next time they open their wallet.
+4. The diploma appears in the student's wallet, cryptographically signed by the university's DID.
 5. An **employer** opens the Verifier Portal and starts a verification session. The student presents their diploma from the wallet.
 6. The verifier portal checks the signature and displays ✓ Verified with all the diploma fields.
+
+> **Alternative flow (QR code):** The Issuer Portal also has an **Issue Diploma** page that generates a one-time QR code / invitation URL. This is useful for students who haven't registered a wallet account yet.
 
 ---
 
@@ -192,26 +196,29 @@ This starts four development servers in parallel. Once they are ready, open thes
 
 ## Step 6 — Issue your first diploma (end-to-end test)
 
-### 6a. Issue the diploma (Issuer Portal)
+### 6a. Register a student account (Student Wallet)
+
+1. Open **http://localhost:5174** in a browser tab.
+2. Click **Register** and create an account with your name, email, and password.
+3. After login, the wallet initialises and **automatically connects** to the university issuer agent (this takes 5–15 seconds). You'll see "Wallet ready" when done.
+
+### 6b. Issue the diploma (Issuer Portal — Students tab)
 
 1. Open **http://localhost:5173** in a browser tab.
-2. Click **Issue Diploma** in the left sidebar.
-3. Fill in the student details (any values are fine for testing).
-4. Click **Issue Diploma**.
-5. An invitation URL will appear. **Copy it**.
+2. Click **Students** in the left sidebar. You should see the student you just registered with a green **Wallet linked** badge.
+3. Click **Issue Diploma** next to their name.
+4. Fill in degree, graduation date, and optional GPA.
+5. Click **Issue Diploma ✓**.
+6. The modal will show progress: *Creating offer → Waiting for wallet → Diploma Issued!*
 
-### 6b. Accept the diploma (Student Wallet)
+> If the student wallet is closed, the diploma is automatically queued. Next time the student opens their wallet it will be delivered.
 
-1. Open **http://localhost:5174** in a **different** browser tab.
-   > First visit: the wallet initialises itself. This takes 5–10 seconds.
-2. Click **Claim Credential** in the sidebar.
-3. Paste the invitation URL into the input field.
-4. Click **Connect & Claim**.
-5. Wait 15–30 seconds. The diploma should appear in **My Credentials**.
+### 6c. View the diploma (Student Wallet)
 
-> If nothing appears after 60 seconds, open the browser developer console (F12 → Console tab) and look for red error messages.
+1. Switch to the Student Wallet tab (http://localhost:5174).
+2. The diploma should appear in **My Credentials** within 30 seconds.
 
-### 6c. Verify the diploma (Verifier Portal)
+### 6d. Verify the diploma (Verifier Portal)
 
 1. Open **http://localhost:5175** in a browser tab.
 2. Click **Start Verification Session**.
@@ -221,15 +228,24 @@ This starts four development servers in parallel. Once they are ready, open thes
 
 ---
 
-## Issuer Dashboard
+## Alternative: QR code / invitation URL flow
 
-The **Dashboard** tab in the Issuer Portal shows every diploma issued. Click any row to open a detail panel showing:
+For students who haven't registered a wallet account, the Issuer Portal's **Issue Diploma** page (sidebar) generates a one-time QR code:
 
-- Student name, ID, degree, GPA, graduation date
-- Credential status (`Offer Sent` → `Issued ✓`)
-- The student's DID (their cryptographic identity)
-- The JWT token (the raw signed credential)
-- Record ID, Connection ID, Thread ID
+1. Issuer Portal → **Issue Diploma** → fill in student details → **Generate Diploma Offer →**
+2. Share the invitation URL with the student.
+3. Student opens the wallet → **Claim Credential** → paste URL → **Connect & Claim**.
+
+---
+
+## Issuer Portal — pages
+
+| Page | What it does |
+|------|-------------|
+| **Dashboard** | Lists all issued credentials with status, student DID, JWT token, and Cardano tx hash |
+| **Students** | Lists registered students; issue diplomas directly to connected wallets or queue for offline students |
+| **Issue Diploma** | QR-code flow for students without a wallet account |
+| **Connections** | Raw DIDComm connection list (debugging) |
 
 ---
 
