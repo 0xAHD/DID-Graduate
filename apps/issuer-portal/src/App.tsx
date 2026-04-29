@@ -3,6 +3,7 @@ import { Routes, Route, NavLink } from "react-router-dom";
 import { Dashboard } from "./pages/Dashboard.js";
 import { IssueDiploma } from "./pages/IssueDiploma.js";
 import { Connections } from "./pages/Connections.js";
+import { Students } from "./pages/Students.js";
 
 const navStyle: CSSProperties = {
   display: "flex",
@@ -34,6 +35,9 @@ export default function App() {
         <NavLink to="/" style={linkStyle} end>
           Dashboard
         </NavLink>
+        <NavLink to="/students" style={linkStyle}>
+          Students
+        </NavLink>
         <NavLink to="/issue" style={linkStyle}>
           Issue Diploma
         </NavLink>
@@ -45,6 +49,7 @@ export default function App() {
       <main style={{ padding: "2rem", maxWidth: "1100px", margin: "0 auto" }}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/students" element={<Students />} />
           <Route path="/issue" element={<IssueDiploma />} />
           <Route path="/connections" element={<Connections />} />
         </Routes>

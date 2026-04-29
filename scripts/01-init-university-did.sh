@@ -31,7 +31,7 @@ echo "Create response: $CREATE_RESPONSE"
 LONG_FORM_DID=$(echo "$CREATE_RESPONSE" | grep -o '"longFormDid":"[^"]*"' | sed 's/"longFormDid":"//;s/"//')
 
 if [ -z "$LONG_FORM_DID" ]; then
-  echo "❌ Failed to extract longFormDid from response."
+  echo "âŒ Failed to extract longFormDid from response."
   exit 1
 fi
 
@@ -64,14 +64,14 @@ for i in $(seq 1 $MAX_ATTEMPTS); do
 done
 
 if [ -z "$SHORT_FORM_DID" ]; then
-  echo "❌ DID was not published after $MAX_ATTEMPTS attempts."
+  echo "âŒ DID was not published after $MAX_ATTEMPTS attempts."
   echo "   In dev mode (in-memory ledger), publication should be near-instant."
   echo "   Check the cloud-agent logs: docker compose -f infrastructure/docker-compose.dev.yml logs issuer-agent"
   exit 1
 fi
 
 echo ""
-echo "✅ DID published: $SHORT_FORM_DID"
+echo "âœ… DID published: $SHORT_FORM_DID"
 
 echo ""
 echo "=== Step 4: Write DID to .env ==="

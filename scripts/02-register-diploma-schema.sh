@@ -14,7 +14,7 @@ SCHEMA_FILE="${SCRIPT_DIR}/../packages/common/src/schema/diploma.schema.json"
 echo "=== Read university DID from .env ==="
 
 if [ ! -f "$ENV_FILE" ]; then
-  echo "❌ .env file not found at $ENV_FILE"
+  echo "âŒ .env file not found at $ENV_FILE"
   echo "   Run scripts/01-init-university-did.sh first."
   exit 1
 fi
@@ -22,7 +22,7 @@ fi
 VITE_UNIVERSITY_DID=$(grep '^VITE_UNIVERSITY_DID=' "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
 
 if [ -z "${VITE_UNIVERSITY_DID:-}" ]; then
-  echo "❌ VITE_UNIVERSITY_DID is not set in .env"
+  echo "âŒ VITE_UNIVERSITY_DID is not set in .env"
   echo "   Run scripts/01-init-university-did.sh first."
   exit 1
 fi
@@ -50,30 +50,31 @@ REGISTER_RESPONSE=$(curl -s -X POST \
 echo "Register response: $REGISTER_RESPONSE"
 
 SCHEMA_GUID=$(echo "$REGISTER_RESPONSE" | grep -o '"guid":"[^"]*"' | head -1 | sed 's/"guid":"//;s/"//')
+SCHEMA_LONG_ID=$(echo "$REGISTER_RESPONSE" | grep -o '"longId":"[^"]*"' | head -1 | sed 's/"longId":"//;s/"//g')
 
 if [ -z "$SCHEMA_GUID" ]; then
-  echo "❌ Failed to extract schema guid from response."
+  echo "âŒ Failed to extract schema guid from response."
   echo "   The schema may already be registered, or the agent returned an error."
   exit 1
 fi
 
 echo ""
-echo "✅ Schema registered: $SCHEMA_GUID"
+echo "âœ… Schema registered: $SCHEMA_GUID"
 
 echo ""
-echo "=== Write schema GUID to .env ==="
+echo "=== Write schema longId to .env ==="
 
 if grep -q "^VITE_DIPLOMA_SCHEMA_ID=" "$ENV_FILE" 2>/dev/null; then
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s|^VITE_DIPLOMA_SCHEMA_ID=.*|VITE_DIPLOMA_SCHEMA_ID=${SCHEMA_GUID}|" "$ENV_FILE"
+    sed -i '' "s|^VITE_DIPLOMA_SCHEMA_ID=.*|VITE_DIPLOMA_SCHEMA_ID=http://localhost:8085/schema-registry/schemas/${SCHEMA_GUID}|" "$ENV_FILE"
   else
-    sed -i "s|^VITE_DIPLOMA_SCHEMA_ID=.*|VITE_DIPLOMA_SCHEMA_ID=${SCHEMA_GUID}|" "$ENV_FILE"
+    sed -i "s|^VITE_DIPLOMA_SCHEMA_ID=.*|VITE_DIPLOMA_SCHEMA_ID=http://localhost:8085/schema-registry/schemas/${SCHEMA_GUID}|" "$ENV_FILE"
   fi
 else
-  echo "VITE_DIPLOMA_SCHEMA_ID=${SCHEMA_GUID}" >> "$ENV_FILE"
+  echo "VITE_DIPLOMA_SCHEMA_ID=http://localhost:8085/schema-registry/schemas/${SCHEMA_GUID}" >> "$ENV_FILE"
 fi
 
 echo "VITE_DIPLOMA_SCHEMA_ID written to $ENV_FILE"
 echo ""
-echo "✅ Setup complete! You can now start the apps:"
+echo "âœ… Setup complete! You can now start the apps:"
 echo "   pnpm run dev"

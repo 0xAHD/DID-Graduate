@@ -6,9 +6,11 @@ import express from "express";
 import cors from "cors";
 import { cardanoRouter } from "./routes/cardano.js";
 import { agentProxyRouter } from "./routes/agentProxy.js";
+import { authRouter } from "./routes/auth.js";
+import { studentsRouter } from "./routes/students.js";
 
 const app = express();
-const PORT = process.env.PORT ?? 3010;
+const PORT = process.env.PORT ?? 3002;
 
 // ── Middleware ─────────────────────────────────────────────────────────────────
 app.use(
@@ -21,7 +23,7 @@ app.use(
         callback(new Error("CORS not allowed from " + origin));
       }
     },
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -56,6 +58,8 @@ app.post("/didcomm", express.raw({ type: "*/*", limit: "4mb" }), async (req, res
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.use("/api/cardano", cardanoRouter);
 app.use("/api/agent", agentProxyRouter);
+app.use("/api/auth", authRouter);
+app.use("/api/students", studentsRouter);
 
 // ── Health ─────────────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {

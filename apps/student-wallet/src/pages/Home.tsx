@@ -2,65 +2,107 @@ import type { CSSProperties } from "react";
 import { useWalletContext } from "../context/WalletContext.js";
 import { DiplomaCard } from "../components/DiplomaCard.js";
 
-const btnStyle = (variant: "primary" | "secondary"): CSSProperties => ({
-  padding: "10px 24px",
-  borderRadius: "6px",
-  border: "none",
-  cursor: "pointer",
-  fontWeight: 600,
-  background: variant === "primary" ? "#0f3460" : "#e2e8f0",
-  color: variant === "primary" ? "#fff" : "#374151",
-});
+const statusColor: Record<string, string> = {
+  idle: "#94a3b8",
+  starting: "#f59e0b",
+  connecting: "#3b82f6",
+  ready: "#16a34a",
+  error: "#dc2626",
+};
+
+const statusLabel: Record<string, string> = {
+  idle: "Stopped",
+  starting: "Starting wallet…",
+  connecting: "Connecting to issuer…",
+  ready: "Ready \u2713",
+  error: "Error",
+};
 
 export function Home() {
-  const { status, credentials, error, start, stop } = useWalletContext();
+  const { status, credentials, error, connectionError, isConnecting, currentUser, walletDid, retryConnection } = useWalletContext();
 
   return (
     <>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>My Diplomas</h1>
+      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.25rem" }}>
+        My Diplomas
+      </h1>
+      {currentUser && (
+        <p style={{ color: "#64748b", fontSize: "0.9rem", marginBottom: "0.5rem" }}>
+          Welcome, <strong>{currentUser.name}</strong>
+          {currentUser.studentNumber ? ` (${currentUser.studentNumber})` : ""}
+        </p>
+      )}
 
-      {/* Wallet status / control */}
-      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "1.25rem", marginBottom: "2rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>Wallet status: </span>
-          <span style={{ color: status === "ready" ? "#16a34a" : status === "error" ? "#dc2626" : "#f59e0b", fontWeight: 700 }}>
-            {status === "idle" && "Stopped"}
-            {status === "starting" && "Connecting to mediator…"}
-            {status === "ready" && "Connected ✓"}
-            {status === "error" && "Error"}
+      {walletDid && (
+        <p
+          title={walletDid}
+          onClick={() => navigator.clipboard.writeText(walletDid)}
+          style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "#64748b", marginBottom: "1.5rem", cursor: "pointer", borderBottom: "1px dashed #cbd5e1", display: "inline-block" }}
+        >
+          DID: {walletDid.slice(0, 28)}&hellip;{walletDid.slice(-10)}
+        </p>
+      )}
+
+      {/* Wallet status pill */}
+      <div style={pillContainerStyle}>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "4px 12px",
+            borderRadius: "999px",
+            background: "#f1f5f9",
+            fontSize: "0.85rem",
+            fontWeight: 600,
+            color: statusColor[status] ?? "#64748b",
+          }}
+        >
+          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: statusColor[status] ?? "#64748b", display: "inline-block" }} />
+          {statusLabel[status] ?? status}
+        </span>
+        {error && (
+          <span style={{ marginLeft: "1rem", fontSize: "0.8rem", color: "#dc2626" }}>
+            {error}
           </span>
-          {error && (
-            <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#dc2626", maxWidth: "480px", whiteSpace: "pre-wrap" }}>{error}</div>
-          )}
-        </div>
-        {status === "idle" || status === "error" ? (
-          <button style={btnStyle("primary")} onClick={start}>
-            Start Wallet
-          </button>
-        ) : (
-          <button style={btnStyle("secondary")} onClick={stop} disabled={status === "starting"}>
-            Stop Wallet
-          </button>
         )}
       </div>
 
-      {/* Info box for first-time setup */}
-      {status === "idle" && (
-        <div style={{ background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: "8px", padding: "1.25rem", marginBottom: "1.5rem", fontSize: "0.875rem" }}>
-          <strong>First time?</strong>
-          <ol style={{ marginTop: "0.5rem", paddingLeft: "1.25rem", lineHeight: 1.8 }}>
-            <li>Click <strong>Start Wallet</strong> above to create your wallet and connect to the mediator.</li>
-            <li>Your wallet keys are stored securely in your browser's IndexedDB.</li>
-            <li>Go to <strong>Claim Diploma</strong> to scan the QR code from your university.</li>
-          </ol>
+      {/* Issuer connection status */}
+      {status === "ready" && (
+        <div style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          {currentUser?.connectionId ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#dcfce7", color: "#15803d" }}>
+              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#16a34a", display: "inline-block" }} />
+              Connected to issuer
+            </span>
+          ) : (
+            <>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fef3c7", color: "#b45309" }}>
+                <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#f59e0b", display: "inline-block" }} />
+                Not connected to issuer
+              </span>
+              <button
+                onClick={retryConnection}
+                disabled={isConnecting}
+                style={{ padding: "3px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: isConnecting ? "not-allowed" : "pointer", fontSize: "0.78rem", fontWeight: 600, opacity: isConnecting ? 0.6 : 1 }}
+              >
+                {isConnecting ? "Connecting…" : "Connect now"}
+              </button>
+              {connectionError && (
+                <span style={{ fontSize: "0.75rem", color: "#dc2626" }}>
+                  ⚠ {connectionError}
+                </span>
+              )}
+            </>
+          )}
         </div>
       )}
 
       {/* Diplomas */}
       {status === "ready" && credentials.length === 0 && (
         <div style={{ textAlign: "center", padding: "3rem", color: "#94a3b8" }}>
-          No diplomas yet. <br />
-          Go to <strong>Claim Diploma</strong> to claim your first diploma.
+          No diplomas yet. Your issuer will send you one when you're graduated.
         </div>
       )}
 
@@ -70,3 +112,10 @@ export function Home() {
     </>
   );
 }
+
+const pillContainerStyle: CSSProperties = {
+  marginBottom: "1.5rem",
+  display: "flex",
+  alignItems: "center",
+};
+

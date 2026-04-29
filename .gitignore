@@ -19,6 +19,12 @@ out/
 # Docker volumes
 infrastructure/data/
 
+# Runtime data — contains password hashes, wallet seeds, and backups
+apps/issuer-api/data/
+
+# Debug / scratch files
+response.txt
+
 # TypeScript
 *.tsbuildinfo
 

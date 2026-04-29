@@ -225,3 +225,54 @@ export async function writeVcHashToCardano(vc: unknown): Promise<{
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+// ── Students ──────────────────────────────────────────────────────────────────
+
+export interface RegisteredStudent {
+  id: string;
+  email: string;
+  name: string;
+  studentNumber: string;
+  connectionId?: string;
+  walletDid?: string;
+  createdAt: string;
+}
+
+export async function fetchStudents(): Promise<RegisteredStudent[]> {
+  const res = await fetch(`${API_BASE}/api/students`);
+  if (!res.ok) throw new Error(`fetchStudents: ${res.status}`);
+  const data = await res.json();
+  return (data.students ?? data) as RegisteredStudent[];
+}
+
+export async function fetchStudent(id: string): Promise<RegisteredStudent> {
+  const res = await fetch(`${API_BASE}/api/students/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`fetchStudent: ${res.status}`);
+  return res.json();
+}
+
+/** Queue a diploma for a student who hasn't connected yet.
+ *  The issuer-api will auto-issue it as soon as the student's wallet connects. */
+export async function queueDiploma(
+  studentId: string,
+  data: {
+    studentName: string;
+    studentIdField: string;
+    degree: string;
+    graduationDate: string;
+    gpa?: number;
+    issuingDid: string;
+    schemaId: string;
+  }
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/students/${encodeURIComponent(studentId)}/diplomas/pending`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...data,
+      universityName: import.meta.env.VITE_UNIVERSITY_NAME ?? "Example University",
+    }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error ?? "Failed to queue diploma");
+}

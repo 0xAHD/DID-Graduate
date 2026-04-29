@@ -1,4 +1,5 @@
 import { useState, useEffect, type CSSProperties } from "react";
+import { useSearchParams, Link } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import {
   createConnection,
@@ -8,10 +9,13 @@ import {
   writeVcHashToCardano,
   listManagedDids,
   listSchemas,
+  fetchStudent,
+  queueDiploma,
+  type RegisteredStudent,
 } from "../services/agentApi.js";
 import type { AgentCredentialRecord } from "@university-diplomas/common";
 
-type Step = "form" | "qr" | "polling" | "success" | "error";
+type Step = "form" | "qr" | "polling" | "queued" | "success" | "error";
 
 interface FormValues {
   studentName: string;
@@ -58,6 +62,9 @@ const btnStyle = (variant: "primary" | "secondary"): CSSProperties => ({
 });
 
 export function IssueDiploma() {
+  const [searchParams] = useSearchParams();
+  const preselectedStudentId = searchParams.get("studentId");
+
   const [step, setStep] = useState<Step>("form");
   const [form, setForm] = useState<FormValues>({
     studentName: "",
@@ -76,6 +83,27 @@ export function IssueDiploma() {
   const [issuingDid, setIssuingDid] = useState<string>(import.meta.env.VITE_UNIVERSITY_DID ?? "");
   const [schemaId, setSchemaId] = useState<string>(import.meta.env.VITE_DIPLOMA_SCHEMA_ID ?? "");
 
+  // If a student was pre-selected (from the Students page), load their info
+  const [selectedStudent, setSelectedStudent] = useState<RegisteredStudent | null>(null);
+
+  useEffect(() => {
+    if (preselectedStudentId) {
+      fetchStudent(preselectedStudentId)
+        .then((s) => {
+          setSelectedStudent(s);
+          setForm((prev) => ({
+            ...prev,
+            studentName: s.name,
+            studentId: s.studentNumber || s.id,
+          }));
+          if (s.connectionId) setConnectionId(s.connectionId);
+        })
+        .catch((e: unknown) => {
+          setError(`Could not load student: ${e instanceof Error ? e.message : String(e)}`);
+        });
+    }
+  }, [preselectedStudentId]);
+
   // Load DIDs / schemas from agent if env vars are not set
   useEffect(() => {
     if (!issuingDid) {
@@ -90,7 +118,7 @@ export function IssueDiploma() {
       listSchemas()
         .then((schemas) => {
           const diploma = schemas.find((s) => s.name === "DiplomaCredential");
-          if (diploma) setSchemaId(`http://localhost:8085/schema-registry/schemas/${diploma.guid}`);  
+          if (diploma) setSchemaId(`http://localhost:8085/schema-registry/schemas/${diploma.guid}`);
         })
         .catch(() => {});
     }
@@ -102,30 +130,94 @@ export function IssueDiploma() {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleGenerateOffer = async () => {
-    setError("");
+  const validateForm = (): boolean => {
     if (!form.studentName || !form.studentId || !form.graduationDate) {
       setError("Student name, ID and graduation date are required.");
-      return;
+      return false;
     }
     if (!issuingDid) {
-      setError(
-        "No published DID found. Run scripts/01-init-university-did.sh first."
-      );
-      return;
+      setError("No published DID found. Run scripts/01-init-university-did.sh first.");
+      return false;
     }
     if (!schemaId) {
-      setError(
-        "No diploma schema found. Run scripts/02-register-diploma-schema.sh first."
-      );
+      setError("No diploma schema found. Run scripts/02-register-diploma-schema.sh first.");
+      return false;
+    }
+    return true;
+  };
+
+  /** Direct issue: student already has a DIDComm connection stored */
+  const handleIssueDirectly = async () => {
+    setError("");
+    if (!validateForm()) return;
+    if (!connectionId) {
+      setError("No connection ID found for this student.");
       return;
     }
+    setStep("polling");
+    try {
+      setStatusMsg("Creating credential offer…");
+      const record = await createCredentialOffer({
+        studentName: form.studentName,
+        studentId: form.studentId,
+        degree: form.degree,
+        graduationDate: form.graduationDate,
+        gpa: form.gpa ? parseFloat(form.gpa) : undefined,
+        connectionId,
+        issuingDid,
+        schemaId,
+      });
+
+      setStatusMsg("Offer sent — waiting for student wallet to accept the credential…");
+      const finalRecord = await pollCredentialRecord(record.recordId);
+      setCredentialRecord(finalRecord);
+
+      setStatusMsg("Writing VC hash to Cardano preprod metadata…");
+      try {
+        const cardano = await writeVcHashToCardano(finalRecord);
+        setCardanoResult(cardano);
+      } catch (cardanoErr) {
+        console.warn("Cardano write failed (non-fatal):", cardanoErr);
+        setCardanoResult(null);
+      }
+
+      setStep("success");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setStep("error");
+    }
+  };
+
+  /** Queue diploma — student will receive it automatically when they first connect */
+  const handleQueueDiploma = async () => {
+    setError("");
+    if (!validateForm()) return;
+    if (!selectedStudent) return;
+    try {
+      await queueDiploma(selectedStudent.id, {
+        studentName: form.studentName,
+        studentIdField: form.studentId,
+        degree: form.degree,
+        graduationDate: form.graduationDate,
+        gpa: form.gpa ? parseFloat(form.gpa) : undefined,
+        issuingDid,
+        schemaId,
+      });
+      setStep("queued");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setStep("error");
+    }
+  };
+
+  /** QR flow: create a new connection invitation */
+  const handleGenerateOffer = async () => {
+    setError("");
+    if (!validateForm()) return;
 
     try {
       setStatusMsg("Creating DIDComm connection…");
-      const conn = await createConnection(
-        `Diploma for ${form.studentName}`
-      );
+      const conn = await createConnection(`Diploma for ${form.studentName}`);
       setConnectionId(conn.connectionId);
       setInvitationUrl(conn.invitationUrl);
       setStep("qr");
@@ -158,7 +250,6 @@ export function IssueDiploma() {
       const finalRecord = await pollCredentialRecord(record.recordId);
       setCredentialRecord(finalRecord);
 
-      // Write hash to Cardano
       setStatusMsg("Writing VC hash to Cardano preprod metadata…");
       try {
         const cardano = await writeVcHashToCardano(finalRecord);
@@ -184,20 +275,52 @@ export function IssueDiploma() {
     setCardanoResult(null);
     setError("");
     setStatusMsg("");
+    setSelectedStudent(null);
   };
+
+  /** Shared success details block */
+  const diplomaDetails = (
+    <div style={{ textAlign: "left", background: "#f8fafc", borderRadius: "8px", padding: "1rem", margin: "1rem 0", fontSize: "0.875rem" }}>
+      <div><strong>Student:</strong> {form.studentName}</div>
+      <div><strong>Degree:</strong> {form.degree}</div>
+      <div><strong>Graduation Date:</strong> {form.graduationDate}</div>
+    </div>
+  );
 
   return (
     <>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "1.5rem" }}>Issue Diploma</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
+        <h1 style={{ fontSize: "1.5rem", margin: 0 }}>Issue Diploma</h1>
+        {selectedStudent && (
+          <span style={{ background: "#eff6ff", color: "#1d4ed8", borderRadius: "6px", padding: "4px 10px", fontSize: "0.8rem", fontWeight: 600 }}>
+            Direct issue to: {selectedStudent.name}
+          </span>
+        )}
+      </div>
 
       <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "2rem", maxWidth: "680px" }}>
 
         {/* ── Step: Form ── */}
         {step === "form" && (
           <>
-            <p style={{ fontSize: "0.875rem", color: "#64748b", marginTop: 0, marginBottom: "1.5rem" }}>
-              Fill in the student's diploma details. You'll get a QR code / link that the student scans with their wallet to claim the credential.
-            </p>
+            {selectedStudent ? (
+              <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "8px", padding: "1rem", marginBottom: "1.5rem", fontSize: "0.875rem" }}>
+                <strong>Issuing to:</strong> {selectedStudent.name} ({selectedStudent.email})
+                {selectedStudent.connectionId ? (
+                  <span style={{ marginLeft: "8px", color: "#16a34a" }}>✓ connected — diploma will be sent directly</span>
+                ) : (
+                  <span style={{ marginLeft: "8px", color: "#f59e0b" }}>⚠ not connected yet — diploma will be queued and auto-sent when they open their wallet</span>
+                )}
+                <div style={{ marginTop: "6px" }}>
+                  <Link to="/students" style={{ fontSize: "0.8rem", color: "#64748b" }}>← Back to Students</Link>
+                </div>
+              </div>
+            ) : (
+              <p style={{ fontSize: "0.875rem", color: "#64748b", marginTop: 0, marginBottom: "1.5rem" }}>
+                Fill in the student's diploma details. You'll get a QR code the student scans to claim the credential, or go to{" "}
+                <Link to="/students" style={{ color: "#1d4ed8" }}>Students</Link> to issue directly to a registered student.
+              </p>
+            )}
 
             <div style={{ display: "grid", gap: "1rem" }}>
               <div>
@@ -232,10 +355,41 @@ export function IssueDiploma() {
 
             {error && <div style={{ marginTop: "1rem", color: "#dc2626", fontSize: "0.875rem" }}>{error}</div>}
 
-            <button style={{ ...btnStyle("primary"), marginTop: "1.5rem" }} onClick={handleGenerateOffer}>
-              Generate Diploma Offer →
-            </button>
+            <div style={{ marginTop: "1.5rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              {selectedStudent?.connectionId ? (
+                <button style={btnStyle("primary")} onClick={handleIssueDirectly}>
+                  Issue Diploma Directly ✓
+                </button>
+              ) : selectedStudent ? (
+                <>
+                  <button style={btnStyle("primary")} onClick={handleQueueDiploma}>
+                    Queue Diploma — send when student connects
+                  </button>
+                  <button style={btnStyle("secondary")} onClick={handleGenerateOffer}>
+                    Generate QR Code instead
+                  </button>
+                </>
+              ) : (
+                <button style={btnStyle("primary")} onClick={handleGenerateOffer}>
+                  Generate Diploma Offer →
+                </button>
+              )}
+            </div>
           </>
+        )}
+
+        {/* ── Step: Queued ── */}
+        {step === "queued" && (
+          <div style={{ textAlign: "center", padding: "1rem 0" }}>
+            <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>📬</div>
+            <h2 style={{ fontSize: "1.2rem", color: "#0f3460" }}>Diploma Queued!</h2>
+            <p style={{ fontSize: "0.875rem", color: "#64748b" }}>
+              The diploma has been saved. As soon as <strong>{form.studentName}</strong> opens
+              their wallet and connects, it will be issued automatically — no action needed.
+            </p>
+            {diplomaDetails}
+            <button style={btnStyle("primary")} onClick={reset}>Issue Another Diploma</button>
+          </div>
         )}
 
         {/* ── Step: QR code ── */}
@@ -303,7 +457,7 @@ export function IssueDiploma() {
                   <div style={{ marginTop: "0.5rem" }}>
                     <strong>Cardano Receipt:</strong>{" "}
                     <a href={cardanoResult.cardanoscanUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6" }}>
-                      {cardanoResult.txHash.slice(0, 16)}… on Cardanoscan ↗
+                      {cardanoResult.txHash.slice(0, 16)}… on Cardanoscan &rarr;
                     </a>
                   </div>
                 </>

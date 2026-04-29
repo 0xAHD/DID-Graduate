@@ -7,7 +7,7 @@
 set -e
 set -u
 
-# ── Create the standard application users (idempotent) ──────────────────────
+# â”€â”€ Create the standard application users (idempotent) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 for role in "pollux-application-user" "connect-application-user" "agent-application-user"; do
   user_exists=$(psql -U "$POSTGRES_USER" -tAc "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '$role'")
   if [ "$user_exists" != "1" ]; then
@@ -18,7 +18,7 @@ for role in "pollux-application-user" "connect-application-user" "agent-applicat
   fi
 done
 
-# ── Helper: create a database and grant the matching role to it ───────────────
+# â”€â”€ Helper: create a database and grant the matching role to it â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function create_db_and_grant() {
   local database=$1    # e.g. issuer_pollux
   local base_role=$2   # e.g. pollux-application-user
@@ -38,7 +38,7 @@ function create_db_and_grant() {
 EOSQL
 }
 
-# ── Create all databases ─────────────────────────────────────────────────────
+# â”€â”€ Create all databases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 create_db_and_grant issuer_pollux    "pollux-application-user"
 create_db_and_grant issuer_connect   "connect-application-user"
 create_db_and_grant issuer_agent     "agent-application-user"
