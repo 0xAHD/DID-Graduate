@@ -48,6 +48,7 @@ export interface IssuedCredentialRecord {
   revocationPendingAt?: string;
   revocationConfirmedAt?: string;
   revocationReason?: string;
+  vcHash?: string;
   cardanoTxHash?: string;
   cardanoscanUrl?: string;
   cardanoRevocationTxHash?: string;

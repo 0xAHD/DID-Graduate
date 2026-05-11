@@ -511,6 +511,33 @@ function CredentialsPanel({ student, onClose }: { student: RegisteredStudent; on
   );
 }
 
+// -- CSV Export --------------------------------------------------------------
+
+function exportCSV(students: RegisteredStudent[]) {
+  const header = ["Student Name", "Student ID", "Email", "Degree", "Graduation Date", "GPA", "Issued At", "Status", "vcHash", "Cardano TX", "Cardanoscan URL"];
+  const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [header.map(esc).join(",")];
+  for (const s of students) {
+    for (const c of s.issuedCredentials ?? []) {
+      const status = c.revoked ? "Revoked" : c.revocationPendingAt ? "Revoking" : c.walletConfirmedAt ? "Delivered" : "Pending";
+      rows.push([
+        s.name, s.studentNumber || s.id, s.email,
+        c.degree, c.graduationDate, String(c.gpa ?? ""),
+        c.issuedAt, status, c.vcHash ?? "", c.cardanoTxHash ?? "", c.cardanoscanUrl ?? "",
+      ].map(esc).join(","));
+    }
+  }
+  const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `diplomas-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // -- Student row --------------------------------------------------------------
 
 interface StudentRowProps {
@@ -585,6 +612,7 @@ export function Students() {
   const [activeStudent, setActiveStudent] = useState<RegisteredStudent | null>(null);
   const [credStudent, setCredStudent] = useState<RegisteredStudent | null>(null);
   const [search, setSearch] = useState("");
+  const [walletFilter, setWalletFilter] = useState<"all" | "linked" | "not-linked">("all");
 
   const load = () => {
     setLoading(true);
@@ -619,13 +647,17 @@ export function Students() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return students;
-    return students.filter((s) =>
-      s.name.toLowerCase().includes(q) ||
-      s.email.toLowerCase().includes(q) ||
-      (s.studentNumber ?? "").toLowerCase().includes(q)
-    );
-  }, [students, search]);
+    return students.filter((s) => {
+      if (walletFilter === "linked" && !s.connectionId) return false;
+      if (walletFilter === "not-linked" && s.connectionId) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        (s.studentNumber ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [students, search, walletFilter]);
 
   const stats = useMemo(() => ({
     total: students.length,
@@ -643,12 +675,21 @@ export function Students() {
             Connected students receive diplomas instantly; others are queued for auto-delivery.
           </p>
         </div>
-        <button
-          onClick={load}
-          style={{ padding: "7px 16px", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600, color: "#475569", display: "flex", alignItems: "center", gap: "6px" }}
-        >
-          &#x21bb; Refresh
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button
+            onClick={() => exportCSV(students)}
+            disabled={students.length === 0}
+            style={{ padding: "7px 16px", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#fff", cursor: students.length === 0 ? "not-allowed" : "pointer", fontSize: "0.82rem", fontWeight: 600, color: "#475569", display: "flex", alignItems: "center", gap: "6px", opacity: students.length === 0 ? 0.5 : 1 }}
+          >
+            ⬇ Export CSV
+          </button>
+          <button
+            onClick={load}
+            style={{ padding: "7px 16px", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600, color: "#475569", display: "flex", alignItems: "center", gap: "6px" }}
+          >
+            &#x21bb; Refresh
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -674,6 +715,15 @@ export function Students() {
             placeholder="Search by name, email or student number&hellip;"
             style={{ flex: 1, padding: "7px 12px", border: "1px solid #e2e8f0", borderRadius: "7px", fontSize: "0.875rem", outline: "none", background: "#f8fafc" }}
           />
+          <select
+            value={walletFilter}
+            onChange={(e) => setWalletFilter(e.target.value as "all" | "linked" | "not-linked")}
+            style={{ padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: "7px", fontSize: "0.82rem", background: "#f8fafc", color: "#334155", cursor: "pointer" }}
+          >
+            <option value="all">All wallets</option>
+            <option value="linked">Wallet linked</option>
+            <option value="not-linked">Not linked</option>
+          </select>
           {search && (
             <button onClick={() => setSearch("")} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "7px", background: "#fff", cursor: "pointer", fontSize: "0.8rem", color: "#64748b" }}>
               Clear

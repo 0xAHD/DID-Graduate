@@ -268,6 +268,7 @@ export interface IssuedCredential {
   revocationConfirmedAt?: string;
   revocationReason?: string;
   walletConfirmedAt?: string;
+  vcHash?: string;
   cardanoTxHash?: string;
   cardanoscanUrl?: string;
   cardanoRevocationTxHash?: string;
