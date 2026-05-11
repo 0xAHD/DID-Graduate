@@ -250,12 +250,40 @@ studentsRouter.post("/:id/diplomas/deliver", async (req, res) => {
         }
       }
 
-      // Re-issue stuck credentials: create a fresh credential offer for each one.
-      // The old offer (for a previous connection or dropped by the mediator) is
-      // replaced — we save the new recordId and mark deliveryState as re-sent.
+      // Re-issue stuck credentials ONLY if the Cloud Agent no longer has the original
+      // record. If the agent still has it (200 OK), the offer is still alive in the
+      // mediator queue and the wallet will receive it when it reconnects — re-issuing
+      // would create a duplicate. Only re-issue on 404 (record expired/dropped).
+      const agentHeaders: Record<string, string> = { Accept: "application/json" };
+      if (ISSUER_API_KEY) agentHeaders["apikey"] = ISSUER_API_KEY;
+
       for (const stuck of stuckCreds) {
         const key = `reissue-${stuck.credentialRecordId}`;
         if (issuingInProgress.has(key)) continue;
+
+        // Check whether the original offer still exists on the Cloud Agent
+        try {
+          const check = await fetch(
+            `${ISSUER_AGENT_URL}/issue-credentials/records/${encodeURIComponent(stuck.credentialRecordId)}`,
+            { headers: agentHeaders }
+          );
+          if (check.ok) {
+            // Agent still has the record — offer is alive in the mediator queue.
+            // The wallet will pick it up when it connects; do NOT re-issue.
+            console.log(`[deliver] record ${stuck.credentialRecordId} still alive on agent — skipping re-issue`);
+            continue;
+          }
+          if (check.status !== 404) {
+            console.warn(`[deliver] agent check for ${stuck.credentialRecordId} returned ${check.status} — skipping re-issue`);
+            continue;
+          }
+          // 404 → record is gone from the agent; safe to re-issue
+          console.log(`[deliver] record ${stuck.credentialRecordId} gone from agent (404) — will re-issue`);
+        } catch (e) {
+          console.warn(`[deliver] could not check agent record ${stuck.credentialRecordId}:`, e);
+          continue; // fail safe: skip rather than risk a duplicate
+        }
+
         issuingInProgress.add(key);
         try {
           const syntheticDiploma: PendingDiploma = {
