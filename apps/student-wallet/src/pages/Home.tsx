@@ -270,7 +270,7 @@ export function Home() {
           {activeCreds.map((cred, i) => {
             const { degree, graduationDate } = extractClaimsForMatch(cred);
             const rec = issuedRecords.find((r) => r.degree === degree && r.graduationDate === graduationDate && !r.revoked && !r.revocationPendingAt && !r.failedAt);
-            return <DiplomaCard key={i} credential={cred} cardanoscanUrl={rec?.cardanoscanUrl} walletConfirmedAt={rec?.walletConfirmedAt} />;
+            return <DiplomaCard key={i} credential={cred} cardanoscanUrl={rec?.cardanoscanUrl} walletConfirmedAt={rec?.walletConfirmedAt} vcHash={rec?.vcHash} />;
           })}
         </>
       )}

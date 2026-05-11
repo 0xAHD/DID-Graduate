@@ -1,7 +1,6 @@
 import type { CSSProperties } from "react";
 import { Routes, Route, NavLink } from "react-router-dom";
 import { Dashboard } from "./pages/Dashboard.js";
-import { Connections } from "./pages/Connections.js";
 import { Students } from "./pages/Students.js";
 
 const navStyle: CSSProperties = {
@@ -37,16 +36,12 @@ export default function App() {
         <NavLink to="/students" style={linkStyle}>
           Students
         </NavLink>
-        <NavLink to="/connections" style={linkStyle}>
-          Connections
-        </NavLink>
       </nav>
 
       <main style={{ padding: "2rem", maxWidth: "1100px", margin: "0 auto" }}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/students" element={<Students />} />
-          <Route path="/connections" element={<Connections />} />
         </Routes>
       </main>
     </>

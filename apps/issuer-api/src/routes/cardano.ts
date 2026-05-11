@@ -48,6 +48,7 @@ cardanoRouter.post("/write-vc-hash", async (req, res) => {
       vcId: vcObj.id as string,
       vcHash,
       universityDid: (credentialSubject.universityDid ?? issuer) as string,
+      universityName: (credentialSubject.universityName ?? process.env.VITE_UNIVERSITY_NAME ?? "") as string,
       studentId: (credentialSubject.studentId ?? "unknown") as string,
       issuedAt: new Date().toISOString(),
     };

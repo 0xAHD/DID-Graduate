@@ -21,6 +21,8 @@ export interface IssuedCredential {
   cardanoTxHash?: string;
   /** Preprod/mainnet Cardanoscan URL for the anchor tx */
   cardanoscanUrl?: string;
+  /** SHA-256 hex of the canonical VC JSON that was anchored */
+  vcHash?: string;
   /** Cardano transaction hash for the on-chain revocation notice */
   cardanoRevocationTxHash?: string;
   /** Cardanoscan URL for the revocation tx */
@@ -325,7 +327,8 @@ export function updateIssuedCredentialCardano(
   studentId: string,
   credentialRecordId: string,
   cardanoTxHash: string,
-  cardanoscanUrl: string
+  cardanoscanUrl: string,
+  vcHash?: string
 ): void {
   const students = loadStudents();
   const student = students.find((s) => s.id === studentId);
@@ -334,6 +337,7 @@ export function updateIssuedCredentialCardano(
   if (!cred) throw new Error("Credential not found");
   cred.cardanoTxHash = cardanoTxHash;
   cred.cardanoscanUrl = cardanoscanUrl;
+  if (vcHash) cred.vcHash = vcHash;
   saveStudents(students);
 }
 

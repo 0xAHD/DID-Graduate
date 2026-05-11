@@ -87,6 +87,7 @@ function sortKeysDeep(value: unknown): unknown {
  *   - vcHash: hex-encoded SHA-256 of the canonical VC JSON
  *   - vcId: the VC's id field
  *   - universityDid: issuer DID for easy on-chain lookup
+ *   - universityName: human-readable institution name
  *   - studentId: non-PII identifier
  *   - issuedAt: ISO timestamp
  *
@@ -107,6 +108,7 @@ export async function writeVcHashToCardano(
       vcHash: payload.vcHash,          // 64-char hex — within 64-byte limit
       vcId: truncate(payload.vcId, 64),
       universityDid: truncate(payload.universityDid, 64),
+      universityName: truncate(payload.universityName, 64),
       studentId: truncate(payload.studentId, 64),
       issuedAt: payload.issuedAt,
     },
@@ -149,6 +151,7 @@ export async function writeRevocationToCardano(params: {
   vcHash: string;
   vcId: string;
   universityDid: string;
+  universityName?: string;
   studentId: string;
   reason?: string;
 }): Promise<CardanoWriteResult> {
@@ -161,6 +164,7 @@ export async function writeRevocationToCardano(params: {
     vcHash: params.vcHash,
     vcId: truncate(params.vcId, 64),
     universityDid: truncate(params.universityDid, 64),
+    universityName: truncate(params.universityName ?? "", 64),
     studentId: truncate(params.studentId, 64),
     revokedAt: new Date().toISOString(),
     ...(params.reason ? { reason: truncate(params.reason, 64) } : {}),

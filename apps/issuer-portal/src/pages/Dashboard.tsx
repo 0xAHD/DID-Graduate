@@ -383,7 +383,14 @@ export function Dashboard() {
       {/* Page header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.75rem" }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: "#0f1c33" }}>Dashboard</h1>
+          <h1 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: "#0f1c33" }}>
+            Dashboard
+            {stats.inProgress > 0 && (
+              <span style={{ marginLeft: "0.6rem", background: "#2563eb", color: "#fff", borderRadius: "999px", padding: "2px 10px", fontSize: "0.7rem", fontWeight: 700, verticalAlign: "middle" }}>
+                {stats.inProgress} in progress
+              </span>
+            )}
+          </h1>
           <p style={{ margin: "3px 0 0", fontSize: "0.875rem", color: "#64748b" }}>All issued diplomas and their current status</p>
         </div>
         <button
