@@ -201,11 +201,18 @@ studentsRouter.post("/:id/diplomas/deliver", async (req, res) => {
   // Find credentials stuck in OfferSent/OfferPending that have enough data to re-issue
   // and haven't been explicitly failed yet. These are credentials the wallet never received
   // because it was offline when the offer was originally sent.
+  //
+  // Guards:
+  // - !walletConfirmedAt: wallet already has it, no need to re-issue
+  // - issuedAt > 5 min ago: prevents race where wallet is just about to accept a fresh offer
+  const REISSUE_AGE_MS = 5 * 60 * 1000;
   const stuckCreds = getIssuedCredentials(req.params.id).filter(
     (c) =>
       !c.revoked &&
       !c.failedAt &&
+      !c.walletConfirmedAt &&
       (c.deliveryState === "OfferSent" || c.deliveryState === "OfferPending") &&
+      new Date(c.issuedAt).getTime() < Date.now() - REISSUE_AGE_MS &&
       c.issuingDid &&
       c.schemaId
   );
@@ -266,7 +273,8 @@ studentsRouter.post("/:id/diplomas/deliver", async (req, res) => {
           };
           const newRecordId = await issueCredentialNow(syntheticDiploma, student.connectionId!);
           if (newRecordId && newRecordId !== "unknown") {
-            // Remove the old stuck record and the new one is already saved by issueCredentialNow
+            // Mark the old stuck record as superseded so it doesn't show as a duplicate
+            try { markCredentialFailed(req.params.id, stuck.credentialRecordId, "Superseded: new offer sent to wallet"); } catch { /* ignore */ }
             console.log(`[deliver] re-issued stuck credential ${stuck.credentialRecordId} → new recordId ${newRecordId} for student ${req.params.id}`);
           }
         } finally {
@@ -654,7 +662,15 @@ studentsRouter.post("/:id/credentials/:recordId/wallet-confirmed", (req, res) =>
 
   // Fire-and-forget: write issuance anchor to Cardano now that we know the wallet has it
   console.log(`[wallet-confirmed] cred found: cardanoTxHash=${cred.cardanoTxHash ?? "empty"}, issuingDid=${cred.issuingDid ?? "MISSING"}`);
-  if (!cred.cardanoTxHash && cred.issuingDid) {
+  // Don't start a second Cardano anchor if another record for the same diploma
+  // (same degree + graduationDate) is already anchored — guards against duplicates
+  // created by the stuck-credential re-issue path.
+  const allCreds = getIssuedCredentials(id);
+  const siblingAnchored = allCreds.some(
+    (c) => c.credentialRecordId !== recordId && !c.failedAt && c.degree === cred.degree && c.graduationDate === cred.graduationDate && !!c.cardanoTxHash
+  );
+
+  if (!cred.cardanoTxHash && cred.issuingDid && !siblingAnchored) {
     console.log(`[wallet-confirmed] Triggering Cardano anchor for ${recordId}`);
     void (async () => {
       try {
