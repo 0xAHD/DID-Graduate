@@ -2,12 +2,13 @@
  * Unit tests for studentStore — exercises every function added in the last
  * session without touching the real data/students.json file.
  *
- * Strategy: point DATA_DIR at a per-test temp directory by mocking the path
- * resolution before importing the module.
+ * Strategy: set process.env.TEST_DATA_DIR to a per-test temp directory before
+ * importing the module. The module reads TEST_DATA_DIR at initialisation time,
+ * so we reset modules before each import to pick up the new env value.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, rmSync, writeFileSync, existsSync } from "fs";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -19,10 +20,6 @@ let storeFile: string;
 function seedStore(students: unknown[] = []) {
   writeFileSync(storeFile, JSON.stringify(students, null, 2), "utf-8");
 }
-
-// We need to reset the module between tests so each test gets a clean module
-// with its own DATA_DIR pointing to the temp directory.
-// We do this by mocking the `path.resolve` calls that build STORE_PATH.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -53,24 +50,10 @@ function makeCred(overrides: Record<string, unknown> = {}) {
 // ── Module under test (imported fresh per suite via dynamic import) ────────────
 
 async function loadStore(dir: string) {
-  // Reset module registry so re-import picks up the mocked path
+  // Point the module to our temp directory before importing
+  process.env.TEST_DATA_DIR = dir;
+  // Reset module registry so the fresh import picks up the new env value
   vi.resetModules();
-
-  // Patch __dirname inside studentStore by mocking the path.resolve call.
-  // The module computes: resolve(__dirname, "../../data") → we intercept
-  // resolve to return our temp dir when the second arg is "../../data".
-  vi.mock("path", async (importOriginal) => {
-    const original = await importOriginal<typeof import("path")>();
-    return {
-      ...original,
-      resolve: (...args: string[]) => {
-        // Only intercept the DATA_DIR computation
-        if (args[args.length - 1] === "../../data") return dir;
-        return original.resolve(...args);
-      },
-    };
-  });
-
   return import("../services/studentStore.js");
 }
 
@@ -84,6 +67,7 @@ describe("studentStore", () => {
   });
 
   afterEach(() => {
+    delete process.env.TEST_DATA_DIR;
     vi.restoreAllMocks();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -113,6 +97,44 @@ describe("studentStore", () => {
       seedStore([makeStudent()]);
       const store = await loadStore(tmpDir);
       expect(() => store.updateDeliveryState("stu-1", "no-cred", "OfferSent")).toThrow("Credential not found");
+    });
+
+    it("sets walletConfirmedAt when state is WalletConfirmed", async () => {
+      const student = makeStudent({ issuedCredentials: [makeCred()] });
+      seedStore([student]);
+      const store = await loadStore(tmpDir);
+
+      store.updateDeliveryState("stu-1", "rec-1", "WalletConfirmed");
+
+      const [updated] = store.getIssuedCredentials("stu-1");
+      expect(updated.walletConfirmedAt).toBeDefined();
+      expect(new Date(updated.walletConfirmedAt!).getTime()).toBeGreaterThan(0);
+    });
+
+    it("does NOT overwrite walletConfirmedAt on a second WalletConfirmed call", async () => {
+      const student = makeStudent({ issuedCredentials: [makeCred()] });
+      seedStore([student]);
+      const store = await loadStore(tmpDir);
+
+      store.updateDeliveryState("stu-1", "rec-1", "WalletConfirmed");
+      const [first] = store.getIssuedCredentials("stu-1");
+      const firstTimestamp = first.walletConfirmedAt;
+
+      store.updateDeliveryState("stu-1", "rec-1", "WalletConfirmed");
+      const [second] = store.getIssuedCredentials("stu-1");
+
+      expect(second.walletConfirmedAt).toBe(firstTimestamp);
+    });
+
+    it("does NOT set walletConfirmedAt for non-WalletConfirmed states", async () => {
+      const student = makeStudent({ issuedCredentials: [makeCred()] });
+      seedStore([student]);
+      const store = await loadStore(tmpDir);
+
+      store.updateDeliveryState("stu-1", "rec-1", "CredentialSent");
+
+      const [updated] = store.getIssuedCredentials("stu-1");
+      expect(updated.walletConfirmedAt).toBeUndefined();
     });
   });
 

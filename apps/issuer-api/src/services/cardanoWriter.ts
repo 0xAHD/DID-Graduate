@@ -59,12 +59,25 @@ async function getWallet(): Promise<MeshWallet> {
 /**
  * Computes a SHA-256 hash of the VC (deterministic JSON serialisation).
  *
- * We sort keys before hashing to ensure the same credential always produces
- * the same hash regardless of JS object key ordering.
+ * Keys are sorted recursively at every level so that the same credential
+ * always produces the same hash regardless of JS object key insertion order.
  */
 export function hashVc(vc: unknown): string {
-  const canonical = JSON.stringify(vc, Object.keys(vc as object).sort());
+  const canonical = JSON.stringify(sortKeysDeep(vc));
   return crypto.createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
+/** Recursively sorts all object keys so JSON serialisation is stable. */
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value as object)
+        .sort()
+        .map((k) => [k, sortKeysDeep((value as Record<string, unknown>)[k])])
+    );
+  }
+  return value;
 }
 
 /**
