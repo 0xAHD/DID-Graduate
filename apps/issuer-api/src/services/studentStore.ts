@@ -67,7 +67,7 @@ export interface Student {
   issuedCredentials?: IssuedCredential[];
 }
 
-const DATA_DIR = resolve(__dirname, "../../data");
+const DATA_DIR = process.env.TEST_DATA_DIR ?? resolve(__dirname, "../../data");
 const STORE_PATH = resolve(DATA_DIR, "students.json");
 
 function loadStudents(): Student[] {
