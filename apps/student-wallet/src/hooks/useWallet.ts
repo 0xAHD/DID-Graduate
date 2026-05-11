@@ -76,7 +76,7 @@ export function useWallet(
     const plutoCreds = await getAllCredentials();
     for (const record of serverRecords) {
       // Skip if already confirmed, no issuingDid, already anchored, or revoked
-      if (!record.issuingDid || record.walletConfirmedAt || record.cardanoTxHash || record.revoked) continue;
+      if (!record.issuingDid || record.walletConfirmedAt || record.cardanoTxHash || record.revoked || record.failedAt) continue;
       const hasIt = plutoCreds.some((c) => {
         try {
           const cr = c as unknown as Record<string, unknown>;
