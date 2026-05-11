@@ -658,6 +658,7 @@ studentsRouter.post("/:id/credentials/:recordId/revocation-confirmed", (req, res
           vcHash: cred.cardanoTxHash!,
           vcId: `urn:credential:${recordId}`,
           universityDid: process.env.VITE_UNIVERSITY_DID ?? "unknown",
+          universityName: cred.universityName ?? process.env.VITE_UNIVERSITY_NAME ?? "",
           studentId: id,
           reason: cred.revocationReason ?? "",
         });
@@ -720,11 +721,12 @@ studentsRouter.post("/:id/credentials/:recordId/wallet-confirmed", (req, res) =>
           vcId: vcObj.id,
           vcHash: hashVc(vcObj),
           universityDid: cred.issuingDid ?? "",
+          universityName: cred.universityName ?? process.env.VITE_UNIVERSITY_NAME ?? "",
           studentId: cred.studentIdField ?? "",
           issuedAt: cred.issuedAt,
         };
         const result = await writeVcHashToCardano(vcPayload);
-        updateIssuedCredentialCardano(id, recordId, result.txHash, result.cardanoscanUrl);
+        updateIssuedCredentialCardano(id, recordId, result.txHash, result.cardanoscanUrl, vcPayload.vcHash);
         console.log(`[wallet-confirmed] Cardano issuance tx: ${result.txHash} for ${recordId}`);
       } catch (e) {
         console.warn("[wallet-confirmed] Cardano write failed (non-fatal):", e instanceof Error ? e.message : String(e));

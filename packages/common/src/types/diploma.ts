@@ -91,6 +91,7 @@ export interface CardanoVcHashPayload {
   vcId: string;
   vcHash: string;
   universityDid: string;
+  universityName: string;
   studentId: string;
   issuedAt: string;
 }
