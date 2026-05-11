@@ -11,6 +11,7 @@ interface DiplomaCardProps {
   revocationDate?: string;
   cardanoscanUrl?: string;
   cardanoRevocationUrl?: string;
+  walletConfirmedAt?: string;
 }
 
 function extractClaims(credential: SDK.Domain.Credential): DiplomaCredentialSubject | null {
@@ -49,7 +50,7 @@ function extractClaims(credential: SDK.Domain.Credential): DiplomaCredentialSubj
   }
 }
 
-function CertificateModal({ claims, cardanoscanUrl, onClose }: { claims: DiplomaCredentialSubject; cardanoscanUrl?: string; onClose: () => void }) {
+function CertificateModal({ claims, cardanoscanUrl, walletConfirmedAt, onClose }: { claims: DiplomaCredentialSubject; cardanoscanUrl?: string; walletConfirmedAt?: string; onClose: () => void }) {
   const overlay: CSSProperties = {
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
     display: "flex", alignItems: "center", justifyContent: "center",
@@ -144,9 +145,9 @@ function CertificateModal({ claims, cardanoscanUrl, onClose }: { claims: Diploma
         </div>
 
         {/* Blockchain anchor link */}
-        {cardanoscanUrl && (
+        {cardanoscanUrl ? (
           <div style={{ marginTop: "1.25rem", padding: "0.6rem 1rem", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "6px", display: "inline-flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "0.7rem", fontFamily: "sans-serif", color: "#1d4ed8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>⛓ Blockchain Anchor</span>
+            <span style={{ fontSize: "0.7rem", fontFamily: "sans-serif", color: "#1d4ed8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>⛓ Anchored on Cardano</span>
             <a
               href={cardanoscanUrl}
               target="_blank"
@@ -157,7 +158,11 @@ function CertificateModal({ claims, cardanoscanUrl, onClose }: { claims: Diploma
               View on Cardanoscan ↗
             </a>
           </div>
-        )}
+        ) : walletConfirmedAt ? (
+          <div style={{ marginTop: "1.25rem", padding: "0.6rem 1rem", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "6px", display: "inline-flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "0.75rem", fontFamily: "sans-serif", color: "#b45309", fontWeight: 600 }}>⏳ Recording to Cardano blockchain… (about 1 min)</span>
+          </div>
+        ) : null}
 
         {/* Issuer DID */}
         {claims.universityDid && (
@@ -177,7 +182,7 @@ function CertificateModal({ claims, cardanoscanUrl, onClose }: { claims: Diploma
   );
 }
 
-export function DiplomaCard({ credential, compact = false, revoked = false, revocationReason, revocationDate, cardanoscanUrl, cardanoRevocationUrl }: DiplomaCardProps) {
+export function DiplomaCard({ credential, compact = false, revoked = false, revocationReason, revocationDate, cardanoscanUrl, cardanoRevocationUrl, walletConfirmedAt }: DiplomaCardProps) {
   const [showModal, setShowModal] = useState(false);
   const claims = extractClaims(credential);
 
@@ -250,17 +255,23 @@ export function DiplomaCard({ credential, compact = false, revoked = false, revo
             )}
           </div>
         )}
-        {!compact && !revoked && cardanoscanUrl && (
+        {!compact && !revoked && (cardanoscanUrl || walletConfirmedAt) && (
           <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid #e2e8f0" }}>
-            <a
-              href={cardanoscanUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.78rem", color: "#1d4ed8", fontWeight: 600, textDecoration: "none" }}
-            >
-              ⛓ On-chain anchor ↗
-            </a>
+            {cardanoscanUrl ? (
+              <a
+                href={cardanoscanUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.78rem", color: "#1d4ed8", fontWeight: 600, textDecoration: "none" }}
+              >
+                ⛓ Anchored on Cardano ↗
+              </a>
+            ) : (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "0.78rem", color: "#b45309", fontWeight: 600 }}>
+                ⏳ Recording to Cardano blockchain…
+              </div>
+            )}
           </div>
         )}
         {!compact && revoked && (cardanoscanUrl || cardanoRevocationUrl) && (
@@ -291,7 +302,7 @@ export function DiplomaCard({ credential, compact = false, revoked = false, revo
         )}
       </div>
 
-      {showModal && <CertificateModal claims={claims} cardanoscanUrl={cardanoscanUrl} onClose={() => setShowModal(false)} />}
+      {showModal && <CertificateModal claims={claims} cardanoscanUrl={cardanoscanUrl} walletConfirmedAt={walletConfirmedAt} onClose={() => setShowModal(false)} />}
     </>
   );
 }
