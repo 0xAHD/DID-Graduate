@@ -330,6 +330,7 @@ function CredentialsPanel({ student, onClose }: { student: RegisteredStudent; on
     if (c.failedAt) return "failed" as const;
     if (c.revoked) return "revoked" as const;
     if (c.revocationPendingAt) return "revoking" as const;
+    if (c.walletConfirmedAt && !c.cardanoTxHash) return "anchoring" as const;
     if (c.deliveryState === "WalletConfirmed" || c.deliveryState === "CredentialSent") return "delivered" as const;
     if (c.deliveryState === "OfferSent" || c.deliveryState === "OfferPending") return "pending" as const;
     return "active" as const;
@@ -375,12 +376,13 @@ function CredentialsPanel({ student, onClose }: { student: RegisteredStudent; on
                 {[...creds].sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime()).map((c) => {
                   const status = credStatus(c);
                   const cfg = {
-                    active:     { bg: "#f0fdf4", border: "#86efac", color: "#15803d", label: "Active",           icon: "\u2713"  },
-                    delivered:  { bg: "#f0fdf4", border: "#86efac", color: "#15803d", label: "Delivered",         icon: "\u2713"  },
-                    pending:    { bg: "#eff6ff", border: "#93c5fd", color: "#1d4ed8", label: "Pending Delivery",  icon: "\u23F3" },
-                    revoking:   { bg: "#fffbeb", border: "#fcd34d", color: "#d97706", label: "Revoking\u2026",   icon: "\u23F3" },
-                    revoked:    { bg: "#fef2f2", border: "#fca5a5", color: "#dc2626", label: "Revoked",           icon: "\u2715"  },
-                    failed:     { bg: "#fafafa", border: "#94a3b8", color: "#64748b", label: "Undelivered",       icon: "\u26A0"  },
+                    active:     { bg: "#f0fdf4", border: "#86efac", color: "#15803d", label: "Active",                    icon: "\u2713"  },
+                    delivered:  { bg: "#f0fdf4", border: "#86efac", color: "#15803d", label: "In Wallet",                  icon: "\u2713"  },
+                    anchoring:  { bg: "#fffbeb", border: "#fcd34d", color: "#b45309", label: "Recording on Cardano\u2026",  icon: "\u23F3" },
+                    pending:    { bg: "#eff6ff", border: "#93c5fd", color: "#1d4ed8", label: "Pending Delivery",           icon: "\u23F3" },
+                    revoking:   { bg: "#fffbeb", border: "#fcd34d", color: "#d97706", label: "Revoking\u2026",            icon: "\u23F3" },
+                    revoked:    { bg: "#fef2f2", border: "#fca5a5", color: "#dc2626", label: "Revoked",                    icon: "\u2715"  },
+                    failed:     { bg: "#fafafa", border: "#94a3b8", color: "#64748b", label: "Undelivered",                icon: "\u26A0"  },
                   }[status];
                   return (
                     <div key={c.credentialRecordId} style={{ border: `1px solid ${cfg.border}`, borderLeft: `4px solid ${cfg.color}`, background: cfg.bg, borderRadius: "10px", padding: "1rem 1.25rem" }}>
@@ -398,16 +400,20 @@ function CredentialsPanel({ student, onClose }: { student: RegisteredStudent; on
                           {c.revocationConfirmedAt && (
                             <div style={{ marginTop: "3px", fontSize: "0.75rem", color: "#94a3b8" }}>Confirmed {new Date(c.revocationConfirmedAt).toLocaleString()}</div>
                           )}
-                          {c.cardanoscanUrl && (
+                          {c.cardanoscanUrl ? (
                             <a
                               href={c.cardanoscanUrl}
                               target="_blank"
                               rel="noopener noreferrer"
                               style={{ marginTop: "6px", display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.75rem", color: "#0369a1", textDecoration: "none", fontWeight: 600 }}
                             >
-                              ⛓ Issuance anchor ↗
+                              ⛓ Anchored on Cardano ↗
                             </a>
-                          )}
+                          ) : c.walletConfirmedAt && !c.cardanoTxHash ? (
+                            <div style={{ marginTop: "6px", display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>
+                              ⏳ Recording to Cardano blockchain…
+                            </div>
+                          ) : null}
                           {c.cardanoRevocationUrl && (
                             <a
                               href={c.cardanoRevocationUrl}

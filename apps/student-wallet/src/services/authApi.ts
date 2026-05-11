@@ -54,6 +54,7 @@ export interface IssuedCredentialRecord {
   cardanoRevocationUrl?: string;
   issuingDid?: string;
   walletConfirmedAt?: string;
+  failedAt?: string;
 }
 
 /** Fetch the list of issued credentials for this student (includes revocation status). */

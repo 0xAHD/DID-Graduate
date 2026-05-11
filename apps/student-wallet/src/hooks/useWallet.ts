@@ -69,6 +69,35 @@ export function useWallet(
     setCredentials((prev) => (creds.length === 0 && prev.length > 0 ? prev : creds));
   }, []);
 
+  // Shared helper: fire walletConfirmedReceipt for any server record that exists
+  // in Pluto but hasn't been confirmed yet. Used at startup and in the periodic poll.
+  const sweepWalletConfirmed = useCallback(async (uid: string, tok: string) => {
+    const serverRecords = await fetchStudentCredentials(uid, tok);
+    const plutoCreds = await getAllCredentials();
+    for (const record of serverRecords) {
+      // Skip if already confirmed, no issuingDid, already anchored, or revoked
+      if (!record.issuingDid || record.walletConfirmedAt || record.cardanoTxHash || record.revoked || record.failedAt) continue;
+      const hasIt = plutoCreds.some((c) => {
+        try {
+          const cr = c as unknown as Record<string, unknown>;
+          let raw: unknown =
+            cr["claims"] ??
+            cr["credentialSubject"] ??
+            (cr["vc"] as Record<string, unknown> | undefined)?.["credentialSubject"];
+          if (Array.isArray(raw)) {
+            const first = raw[0] as Record<string, unknown>;
+            raw = (first && "name" in first)
+              ? Object.fromEntries((raw as Array<{ name: string; value: unknown }>).map((x) => [x.name, x.value]))
+              : first;
+          }
+          const obj = raw as Record<string, unknown>;
+          return obj["degree"] === record.degree && obj["graduationDate"] === record.graduationDate;
+        } catch { return false; }
+      });
+      if (hasIt) void walletConfirmedReceipt(uid, tok, record.credentialRecordId);
+    }
+  }, []);
+
   const start = useCallback(async () => {
     if (!currentUser) return;
     setStatus("starting");
@@ -101,29 +130,7 @@ export function useWallet(
       // before this code was deployed, or while the wallet was offline.
       if (token) {
         try {
-          const serverRecords = await fetchStudentCredentials(currentUser.id, token);
-          const plutoCreds = await getAllCredentials();
-          for (const record of serverRecords) {
-            if (!record.issuingDid || record.cardanoTxHash || record.revoked) continue;
-            const hasIt = plutoCreds.some((c) => {
-              try {
-                const cr = c as unknown as Record<string, unknown>;
-                let raw: unknown =
-                  cr["claims"] ??
-                  cr["credentialSubject"] ??
-                  (cr["vc"] as Record<string, unknown> | undefined)?.["credentialSubject"];
-                if (Array.isArray(raw)) {
-                  const first = raw[0] as Record<string, unknown>;
-                  raw = (first && "name" in first)
-                    ? Object.fromEntries((raw as Array<{ name: string; value: unknown }>).map((x) => [x.name, x.value]))
-                    : first;
-                }
-                const obj = raw as Record<string, unknown>;
-                return obj["degree"] === record.degree && obj["graduationDate"] === record.graduationDate;
-              } catch { return false; }
-            });
-            if (hasIt) void walletConfirmedReceipt(currentUser.id, token, record.credentialRecordId);
-          }
+          await sweepWalletConfirmed(currentUser.id, token);
         } catch { /* non-fatal */ }
       }
 
@@ -281,7 +288,7 @@ export function useWallet(
       setStatus("error");
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [refreshCredentials, currentUser, token]);
+  }, [refreshCredentials, sweepWalletConfirmed, currentUser, token]);
 
   // Keep the ref in sync with the latest currentUser
   useEffect(() => {
@@ -304,6 +311,18 @@ export function useWallet(
     const id = setInterval(() => { void refreshCredentials(); }, 20_000);
     return () => clearInterval(id);
   }, [status, refreshCredentials]);
+
+  // Periodic wallet-confirmed sweep — fires walletConfirmedReceipt for any credential
+  // that arrived in Pluto while the wallet was already open (startup sweep already ran).
+  // Runs every 10 s so the Cardano anchor kicks off within seconds of DIDComm delivery,
+  // matching the speed of the revocation anchor path.
+  useEffect(() => {
+    if (status !== "ready" || !currentUser || !token) return;
+    const id = setInterval(() => {
+      void sweepWalletConfirmed(currentUser.id, token).catch(() => { /* non-fatal */ });
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [status, currentUser, token, sweepWalletConfirmed]);
 
   const stop = useCallback(async () => {
     unsubscribeRef.current?.();

@@ -212,17 +212,22 @@ function DetailModal({ record, revInfo, onClose }: DetailModalProps) {
             </div>
           </Section>
 
-          {revInfo?.cardanoscanUrl && (
+          {revInfo?.cardanoscanUrl ? (
             <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "8px", padding: "1rem 1.25rem", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
               <div>
-                <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#1d4ed8", marginBottom: "4px" }}>⛓ Blockchain Anchor — Issuance</div>
+                <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#1d4ed8", marginBottom: "4px" }}>⛓ Anchored on Cardano — Issuance</div>
                 <div style={{ fontSize: "0.75rem", color: "#475569", fontFamily: "monospace", wordBreak: "break-all" }}>{revInfo.cardanoTxHash}</div>
               </div>
               <a href={revInfo.cardanoscanUrl} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0, padding: "6px 14px", background: "#1d4ed8", color: "#fff", borderRadius: "6px", textDecoration: "none", fontSize: "0.78rem", fontWeight: 700, whiteSpace: "nowrap" }}>
                 View on Cardanoscan ↗
               </a>
             </div>
-          )}
+          ) : revInfo?.walletConfirmedAt ? (
+            <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "8px", padding: "1rem 1.25rem", marginBottom: "1rem" }}>
+              <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#b45309", marginBottom: "6px" }}>⏳ Blockchain Anchor — Recording in Progress</div>
+              <div style={{ fontSize: "0.82rem", color: "#64748b" }}>Credential delivered to student wallet. Recording to Cardano blockchain — this takes about 1 minute.</div>
+            </div>
+          ) : null}
 
           {revInfo?.cardanoRevocationUrl && (
             <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "8px", padding: "1rem 1.25rem", marginBottom: "1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
