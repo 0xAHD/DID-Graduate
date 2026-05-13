@@ -1,11 +1,125 @@
 import { Router } from "express";
-import { hashVc, writeVcHashToCardano } from "../services/cardanoWriter.js";
+import { hashVc, writeVcHashToCardano, getWalletInfo } from "../services/cardanoWriter.js";
 import { CardanoVcHashPayload } from "@university-diplomas/common";
+import { listStudents, updateIssuedCredentialCardano } from "../services/studentStore.js";
 
 export const cardanoRouter = Router();
 
-/** In-memory map from vcHash (hex SHA-256 of canonical VC) → Cardano txHash */
+/** In-memory map from vcHash (hex SHA-256 of canonical VC) → Cardano txHash.
+ *  Rebuilt from students.json on startup so restarts don't break lookup. */
 const vcHashToTxHash = new Map<string, string>();
+
+function rebuildHashMap() {
+  try {
+    const students = listStudents();
+    for (const student of students) {
+      for (const cred of student.issuedCredentials ?? []) {
+        if (cred.vcHash && cred.cardanoTxHash) {
+          vcHashToTxHash.set(cred.vcHash, cred.cardanoTxHash);
+        }
+      }
+    }
+    console.log(`[cardano] Rebuilt hash map: ${vcHashToTxHash.size} entries`);
+  } catch (e) {
+    console.warn("[cardano] Could not rebuild hash map:", e);
+  }
+}
+
+rebuildHashMap();
+
+/**
+ * GET /api/cardano/wallet-info
+ *
+ * Returns the Cardano wallet address and current ADA balance.
+ * Useful for diagnosing insufficient-funds errors.
+ */
+cardanoRouter.get("/wallet-info", async (_req, res) => {
+  try {
+    const info = await getWalletInfo();
+    res.json(info);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[cardano/wallet-info] error:", message);
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/cardano/retry-stuck
+ *
+ * Finds all credentials with walletConfirmedAt but no cardanoTxHash and
+ * re-submits them to Cardano, saving the result to students.json.
+ * Writes are serialized (25s apart) to avoid UTXO collision.
+ */
+cardanoRouter.post("/retry-stuck", async (_req, res) => {
+  const students = listStudents();
+  const stuck: Array<{ studentId: string; credentialRecordId: string; degree: string; studentNumber: string; studentName: string; gpa?: number; graduationDate?: string; universityName?: string; issuingDid?: string; issuedAt?: string }> = [];
+
+  for (const student of students) {
+    for (const cred of student.issuedCredentials ?? []) {
+      if (cred.walletConfirmedAt && !cred.cardanoTxHash) {
+        stuck.push({
+          studentId: student.id,
+          credentialRecordId: cred.credentialRecordId,
+          degree: cred.degree ?? "",
+          studentNumber: (student as unknown as Record<string, string>).studentNumber ?? student.id,
+          studentName: (student as unknown as Record<string, string>).name ?? "Unknown",
+          gpa: cred.gpa,
+          graduationDate: cred.graduationDate,
+          universityName: cred.universityName,
+          issuingDid: cred.issuingDid,
+          issuedAt: cred.issuedAt,
+        });
+      }
+    }
+  }
+
+  res.json({ queued: stuck.length, credentials: stuck.map((s) => `${s.studentName} / ${s.degree}`) });
+
+  // Process in background, one at a time (writeVcHashToCardano already queues internally)
+  void (async () => {
+    for (const item of stuck) {
+      const vc = {
+        "@context": ["https://www.w3.org/2018/credentials/v1"],
+        id: `urn:credential:${item.credentialRecordId}`,
+        type: ["VerifiableCredential", "DiplomaCredential2022"],
+        issuer: item.issuingDid ?? "did:prism:unknown",
+        issuanceDate: item.issuedAt ?? new Date().toISOString(),
+        credentialSubject: {
+          degree: item.degree,
+          graduationDate: item.graduationDate ?? "",
+          gpa: item.gpa,
+          studentId: item.studentNumber,
+          studentName: item.studentName,
+          universityName: item.universityName ?? "",
+          universityDid: item.issuingDid ?? "did:prism:unknown",
+        },
+      };
+
+      const vcHash = hashVc(vc);
+      const payload: CardanoVcHashPayload = {
+        label: 674,
+        vcId: vc.id,
+        vcHash,
+        universityDid: item.issuingDid ?? "did:prism:unknown",
+        universityName: item.universityName ?? "",
+        studentId: item.studentNumber,
+        degree: item.degree,
+        gpa: item.gpa != null ? String(item.gpa) : undefined,
+        issuedAt: new Date().toISOString(),
+      };
+
+      try {
+        const result = await writeVcHashToCardano(payload);
+        updateIssuedCredentialCardano(item.studentId, item.credentialRecordId, result.txHash, result.cardanoscanUrl, vcHash);
+        console.log(`[cardano/retry-stuck] OK: ${item.studentName} / ${item.degree} -> ${result.txHash}`);
+      } catch (e) {
+        console.error(`[cardano/retry-stuck] FAILED: ${item.studentName} / ${item.degree}:`, e instanceof Error ? e.message : String(e));
+      }
+    }
+    console.log("[cardano/retry-stuck] All done.");
+  })();
+});
 
 /**
  * POST /api/cardano/write-vc-hash
@@ -50,6 +164,8 @@ cardanoRouter.post("/write-vc-hash", async (req, res) => {
       universityDid: (credentialSubject.universityDid ?? issuer) as string,
       universityName: (credentialSubject.universityName ?? process.env.VITE_UNIVERSITY_NAME ?? "") as string,
       studentId: (credentialSubject.studentId ?? "unknown") as string,
+      degree: (credentialSubject.degree ?? "") as string,
+      gpa: credentialSubject.gpa != null ? String(credentialSubject.gpa) : undefined,
       issuedAt: new Date().toISOString(),
     };
 
@@ -62,7 +178,6 @@ cardanoRouter.post("/write-vc-hash", async (req, res) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[cardano/write-vc-hash] error:", message);
-    // Don't leak internal error details to client
     res.status(500).json({ error: "Failed to write VC hash to Cardano. Check server logs." });
   }
 });
@@ -163,8 +278,35 @@ cardanoRouter.post("/lookup-by-jwt", (req, res) => {
     const vc = (payload.vc ?? payload) as Record<string, unknown>;
     const vcHash = hashVc(vc);
 
-    const txHash = vcHashToTxHash.get(vcHash);
+    // Primary lookup: hash-based (works when vcHash was stored at issuance)
+    let txHash = vcHashToTxHash.get(vcHash);
+
+    // Fallback: match by credentialSubject fields stored in students.json.
+    // Needed for credentials issued before vcHash storage was added.
     if (!txHash) {
+      const subj = (vc.credentialSubject ?? {}) as Record<string, unknown>;
+      const degree = subj.degree as string | undefined;
+      const graduationDate = subj.graduationDate as string | undefined;
+      const studentId = subj.studentId as string | undefined;
+
+      if (degree || graduationDate) {
+        outer: for (const student of listStudents()) {
+          for (const cred of student.issuedCredentials ?? []) {
+            if (!cred.cardanoTxHash) continue;
+            const degreeMatch = !degree || cred.degree === degree;
+            const dateMatch = !graduationDate || cred.graduationDate === graduationDate;
+            const sidMatch = !studentId || student.studentNumber === studentId;
+            if (degreeMatch && dateMatch && sidMatch) {
+              txHash = cred.cardanoTxHash;
+              break outer;
+            }
+          }
+        }
+      }
+    }
+
+    if (!txHash) {
+      console.log("[cardano/lookup-by-jwt] no match for vcHash:", vcHash);
       res.json({ verified: false });
       return;
     }

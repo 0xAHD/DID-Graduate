@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { CSSProperties } from "react";
 import { useWalletContext } from "../context/WalletContext.js";
 import { DiplomaCard } from "../components/DiplomaCard.js";
-import { fetchStudentCredentials, confirmRevocation, type IssuedCredentialRecord } from "../services/authApi.js";
+import { fetchStudentCredentials, confirmRevocation, createDiplomaShare, deleteDiplomaShare, type IssuedCredentialRecord } from "../services/authApi.js";
 
 const statusColor: Record<string, string> = {
   idle: "#94a3b8",
@@ -61,6 +61,10 @@ export function Home() {
   const { status, credentials, error, connectionError, isConnecting, currentUser, token, walletDid, retryConnection } = useWalletContext();
   const [issuedRecords, setIssuedRecords] = useState<IssuedCredentialRecord[]>([]);
   const [tab, setTab] = useState<"active" | "revoked">("active");
+  // Map of credentialRecordId → share URL (populated when student clicks Share)
+  const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
+  const [shareLoading, setShareLoading] = useState<Record<string, boolean>>({});
+  const [shareCopied, setShareCopied] = useState<Record<string, boolean>>({});
 
   const refreshRecords = useCallback(async () => {
     if (!currentUser || !token) return;
@@ -141,6 +145,34 @@ export function Home() {
     return issuedRecords
       .filter((r) => r.degree === degree && r.graduationDate === graduationDate && (r.revoked || !!r.revocationPendingAt))
       .sort((a, b) => new Date(b.revocationConfirmedAt ?? b.revocationPendingAt ?? 0).getTime() - new Date(a.revocationConfirmedAt ?? a.revocationPendingAt ?? 0).getTime())[0];
+  }
+
+  async function handleShare(credentialRecordId: string) {
+    if (!token) return;
+    setShareLoading((prev) => ({ ...prev, [credentialRecordId]: true }));
+    try {
+      const result = await createDiplomaShare(credentialRecordId, token);
+      setShareUrls((prev) => ({ ...prev, [credentialRecordId]: result.url }));
+    } catch { /* silently ignore — button stays visible */ }
+    finally {
+      setShareLoading((prev) => ({ ...prev, [credentialRecordId]: false }));
+    }
+  }
+
+  async function handleUnshare(credentialRecordId: string, shareToken: string) {
+    if (!token) return;
+    await deleteDiplomaShare(shareToken, token).catch(() => {/* non-fatal */});
+    setShareUrls((prev) => {
+      const next = { ...prev };
+      delete next[credentialRecordId];
+      return next;
+    });
+  }
+
+  function handleCopyShare(credentialRecordId: string, url: string) {
+    void navigator.clipboard.writeText(url);
+    setShareCopied((prev) => ({ ...prev, [credentialRecordId]: true }));
+    setTimeout(() => setShareCopied((prev) => ({ ...prev, [credentialRecordId]: false })), 2000);
   }
 
   return (
@@ -270,7 +302,60 @@ export function Home() {
           {activeCreds.map((cred, i) => {
             const { degree, graduationDate } = extractClaimsForMatch(cred);
             const rec = issuedRecords.find((r) => r.degree === degree && r.graduationDate === graduationDate && !r.revoked && !r.revocationPendingAt && !r.failedAt);
-            return <DiplomaCard key={i} credential={cred} cardanoscanUrl={rec?.cardanoscanUrl} walletConfirmedAt={rec?.walletConfirmedAt} vcHash={rec?.vcHash} />;
+            const recId = rec?.credentialRecordId;
+            const shareUrl = recId ? shareUrls[recId] : undefined;
+            const isLoadingShare = recId ? !!shareLoading[recId] : false;
+            const isCopied = recId ? !!shareCopied[recId] : false;
+            return (
+              <div key={i}>
+                <DiplomaCard credential={cred} cardanoscanUrl={rec?.cardanoscanUrl} walletConfirmedAt={rec?.walletConfirmedAt} vcHash={rec?.vcHash} />
+                {rec && rec.walletConfirmedAt && (
+                  <div style={{ marginTop: "-0.5rem", marginBottom: "1rem", padding: "0.75rem 1rem", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "0 0 8px 8px", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    {!shareUrl ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <button
+                          onClick={() => recId && void handleShare(recId)}
+                          disabled={isLoadingShare || !recId}
+                          style={{ padding: "6px 16px", background: "#0f3460", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: 600, fontSize: "0.8rem", opacity: isLoadingShare ? 0.6 : 1 }}
+                        >
+                          {isLoadingShare ? "Generating…" : "🔗 Share Diploma"}
+                        </button>
+                        <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                          Generate a shareable link for employers
+                        </span>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                        <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#15803d" }}>✓ Share link active</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                          <input
+                            readOnly
+                            value={shareUrl}
+                            style={{ flex: 1, minWidth: "200px", padding: "5px 8px", border: "1px solid #cbd5e1", borderRadius: "4px", fontSize: "0.75rem", fontFamily: "monospace", background: "#fff", color: "#334155" }}
+                            onClick={(e) => (e.target as HTMLInputElement).select()}
+                          />
+                          <button
+                            onClick={() => handleCopyShare(recId!, shareUrl)}
+                            style={{ padding: "5px 12px", background: isCopied ? "#dcfce7" : "#eff6ff", color: isCopied ? "#15803d" : "#1d4ed8", border: `1px solid ${isCopied ? "#86efac" : "#bfdbfe"}`, borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", fontWeight: 600, whiteSpace: "nowrap" }}
+                          >
+                            {isCopied ? "✓ Copied!" : "📋 Copy"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const shareToken = shareUrl.split("/share/")[1];
+                              if (shareToken && recId) void handleUnshare(recId, shareToken);
+                            }}
+                            style={{ padding: "5px 12px", background: "#fff5f5", color: "#dc2626", border: "1px solid #fca5a5", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", fontWeight: 600, whiteSpace: "nowrap" }}
+                          >
+                            🗑 Revoke Link
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
           })}
         </>
       )}

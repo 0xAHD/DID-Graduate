@@ -660,6 +660,8 @@ studentsRouter.post("/:id/credentials/:recordId/revocation-confirmed", (req, res
           universityDid: process.env.VITE_UNIVERSITY_DID ?? "unknown",
           universityName: cred.universityName ?? process.env.VITE_UNIVERSITY_NAME ?? "",
           studentId: id,
+          degree: cred.degree ?? "",
+          gpa: cred.gpa != null ? String(cred.gpa) : undefined,
           reason: cred.revocationReason ?? "",
         });
         updateIssuedCredentialRevocationCardano(id, recordId, result.txHash, result.cardanoscanUrl);
@@ -723,6 +725,8 @@ studentsRouter.post("/:id/credentials/:recordId/wallet-confirmed", (req, res) =>
           universityDid: cred.issuingDid ?? "",
           universityName: cred.universityName ?? process.env.VITE_UNIVERSITY_NAME ?? "",
           studentId: cred.studentIdField ?? "",
+          degree: cred.degree ?? "",
+          ...(cred.gpa != null ? { gpa: String(cred.gpa) } : {}),
           issuedAt: cred.issuedAt,
         };
         const result = await writeVcHashToCardano(vcPayload);

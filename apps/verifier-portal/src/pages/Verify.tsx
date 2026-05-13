@@ -29,6 +29,7 @@ export function Verify() {
   const [presentationId, setPresentationId] = useState<string>("");
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [error, setError] = useState<string>("");
+  const [urlCopied, setUrlCopied] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -46,8 +47,7 @@ export function Verify() {
     setResult(null);
     setQrDataUrl("");
     setInvitationUrl("");
-    setConnectionId("");
-
+    setConnectionId("");      setUrlCopied(false);
     try {
       const conn: ConnectionRecord = await createVerifierConnection();
       setConnectionId(conn.connectionId);
@@ -152,13 +152,14 @@ export function Verify() {
     setInvitationUrl("");
     setConnectionId("");
     setPresentationId("");
+    setUrlCopied(false);
   }, [stopPolling]);
 
   return (
     <div>
       <h1 style={{ marginTop: 0 }}>Verify Diploma Credential</h1>
       <p style={{ color: "#6b7280", marginBottom: "2rem" }}>
-        Ask a student to scan the QR code with their wallet to share their diploma credential.
+        Generate a connection link and share it with the student. They paste it into their wallet to connect and share their diploma credential.
       </p>
 
       {step === "idle" && (
@@ -174,20 +175,35 @@ export function Verify() {
         <div>
           <StepIndicator current={step} />
 
-          {step === "connecting" && qrDataUrl && (
+          {step === "connecting" && invitationUrl && (
             <div style={cardStyle}>
-              <h3 style={{ marginTop: 0 }}>Step 1 — Student scans this QR code</h3>
-              <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>
-                Have the student open their Identus wallet and scan to connect.
+              <h3 style={{ marginTop: 0 }}>Step 1 — Share this link with the student</h3>
+              <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "1rem" }}>
+                Copy the link below and send it to the student. They paste it into the <strong>Present Diploma</strong> page of their wallet to establish a secure connection.
               </p>
-              <div style={{ textAlign: "center", margin: "1.5rem 0" }}>
-                <img src={qrDataUrl} alt="DIDComm invitation QR code" style={{ borderRadius: 8, border: "1px solid #e5e7eb" }} />
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "1.25rem" }}>
+                <input
+                  readOnly
+                  value={invitationUrl}
+                  style={{ flex: 1, padding: "0.6rem 0.75rem", fontSize: "0.78rem", borderRadius: 6, border: "1px solid #d1d5db", background: "#f3f4f6", color: "#374151", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  onClick={e => (e.target as HTMLInputElement).select()}
+                />
+                <button
+                  onClick={() => { void navigator.clipboard.writeText(invitationUrl).then(() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); }); }}
+                  style={{ ...btnStyle(urlCopied ? "#059669" : "#1a3c2e", "#fff"), padding: "0.6rem 1rem", whiteSpace: "nowrap", flexShrink: 0 }}
+                >
+                  {urlCopied ? "✓ Copied" : "Copy Link"}
+                </button>
               </div>
-              <details style={{ fontSize: "0.8rem", color: "#9ca3af" }}>
-                <summary>Show raw invitation URL</summary>
-                <code style={{ wordBreak: "break-all" }}>{invitationUrl}</code>
-              </details>
-              <p style={{ textAlign: "center", color: "#6b7280", fontSize: "0.875rem" }}>
+              {qrDataUrl && (
+                <details style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "1rem" }}>
+                  <summary style={{ cursor: "pointer" }}>Show QR code (for mobile wallets)</summary>
+                  <div style={{ textAlign: "center", margin: "1rem 0" }}>
+                    <img src={qrDataUrl} alt="DIDComm invitation QR code" style={{ borderRadius: 8, border: "1px solid #e5e7eb" }} />
+                  </div>
+                </details>
+              )}
+              <p style={{ textAlign: "center", color: "#6b7280", fontSize: "0.875rem", margin: 0 }}>
                 ⏳ Waiting for student to accept connection...
               </p>
             </div>
@@ -219,8 +235,15 @@ export function Verify() {
         <div>
           {result.status === "verified" ? (
             <div style={{ ...cardStyle, borderLeft: "4px solid #10b981" }}>
-              <h2 style={{ color: "#065f46", marginTop: 0 }}>✅ Diploma Verified</h2>
-              {result.claims && <ClaimsTable claims={result.claims} />}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem" }}>
+                <span style={{ fontSize: "2rem" }}>✅</span>
+                <div>
+                  <h2 style={{ color: "#065f46", margin: 0 }}>Diploma Verified</h2>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: "#6b7280" }}>Cryptographic proof accepted by the Identus agent</p>
+                </div>
+              </div>
+
+              {result.claims && <DiplomaDisplay claims={result.claims} />}
 
               {result.cardanoVerified !== undefined && (
                 <div style={cardanoBoxStyle(result.cardanoVerified)}>
@@ -230,7 +253,7 @@ export function Verify() {
                           <> — <a href={`https://preprod.cardanoscan.io/transaction/${result.cardanoTxId}`} target="_blank" rel="noreferrer">View on Cardanoscan</a></>
                         )}
                       </>
-                    : "⚠️ Credential hash not found on Cardano preprod (VC may not have been anchored)"}
+                    : "⚠️ Credential hash not found on Cardano preprod (VC may not have been anchored yet)"}
                 </div>
               )}
             </div>
@@ -261,13 +284,20 @@ export function Verify() {
 
 function extractClaims(record: PresentationRecord): Record<string, unknown> {
   try {
-    // The proof data lives at record.data or record.presentation depending on agent version
     const raw = (record as unknown as Record<string, unknown>).data
       ?? (record as unknown as Record<string, unknown>).presentation;
-    if (typeof raw === "string") {
-      // JWT — decode payload (no crypto; purely for display)
-      const payload = raw.split(".")[1];
+    // data is an array of JWT strings in the agent v2 response
+    const jwt = Array.isArray(raw) ? raw[0] : raw;
+    if (typeof jwt === "string") {
+      const payload = jwt.split(".")[1];
       const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+      // VP wraps a VC inside verifiableCredential[0]
+      const vcJwt = decoded?.vp?.verifiableCredential?.[0];
+      if (typeof vcJwt === "string") {
+        const vcPayload = vcJwt.split(".")[1];
+        const vc = JSON.parse(atob(vcPayload.replace(/-/g, "+").replace(/_/g, "/")));
+        return { ...vc?.vc?.credentialSubject ?? {}, _issuer: vc?.iss, _issuedAt: vc?.iat };
+      }
       return decoded?.vc?.credentialSubject ?? decoded ?? {};
     }
     return {};
@@ -280,29 +310,64 @@ function extractVcJwt(record: PresentationRecord): string | null {
   try {
     const raw = (record as unknown as Record<string, unknown>).data
       ?? (record as unknown as Record<string, unknown>).presentation;
-    return typeof raw === "string" ? raw : null;
+    const jwt = Array.isArray(raw) ? raw[0] : raw;
+    if (typeof jwt !== "string") return null;
+    // Extract the inner VC JWT from the VP
+    const payload = jwt.split(".")[1];
+    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return decoded?.vp?.verifiableCredential?.[0] ?? jwt;
   } catch {
     return null;
   }
 }
 
-function ClaimsTable({ claims }: { claims: Record<string, unknown> }) {
-  const entries = Object.entries(claims).filter(([k]) => k !== "id");
+const LABEL: Record<string, string> = {
+  studentName: "Student Name",
+  universityName: "University",
+  degree: "Degree",
+  graduationDate: "Graduation Date",
+  gpa: "GPA",
+  studentId: "Student ID",
+  _issuer: "Issuer DID",
+  _issuedAt: "Issued At",
+};
+
+function DiplomaDisplay({ claims }: { claims: Record<string, unknown> }) {
+  const primary = ["studentName", "universityName", "degree", "graduationDate", "gpa", "studentId"];
+  const meta = ["_issuer", "_issuedAt"];
+
+  const row = (key: string, value: unknown) => {
+    let display = String(value);
+    if (key === "_issuedAt" && typeof value === "number") {
+      display = new Date(value * 1000).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+    }
+    if (key === "_issuer") {
+      display = String(value).length > 60 ? String(value).slice(0, 32) + "…" + String(value).slice(-16) : String(value);
+    }
+    return (
+      <div key={key} style={{ display: "flex", justifyContent: "space-between", padding: "0.6rem 0", borderBottom: "1px solid #f3f4f6", flexWrap: "wrap", gap: "0.25rem" }}>
+        <span style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          {LABEL[key] ?? key}
+        </span>
+        <span style={{ fontWeight: key === "studentName" || key === "degree" ? 700 : 500, color: "#111827", fontSize: key === "studentName" ? "1rem" : "0.9rem" }}>
+          {display}
+        </span>
+      </div>
+    );
+  };
+
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "1rem", fontSize: "0.9rem" }}>
-      <tbody>
-        {entries.map(([key, value]) => (
-          <tr key={key} style={{ borderBottom: "1px solid #e5e7eb" }}>
-            <td style={{ padding: "0.5rem 0.75rem", fontWeight: 600, color: "#374151", width: "40%" }}>
-              {key}
-            </td>
-            <td style={{ padding: "0.5rem 0.75rem", color: "#111827" }}>
-              {String(value)}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: "8px", padding: "1rem 1.25rem", margin: "0.5rem 0 1rem" }}>
+      {primary.filter(k => claims[k] != null).map(k => row(k, claims[k]))}
+      {meta.filter(k => claims[k] != null).length > 0 && (
+        <details style={{ marginTop: "0.5rem" }}>
+          <summary style={{ fontSize: "0.8rem", color: "#9ca3af", cursor: "pointer" }}>Technical details</summary>
+          <div style={{ marginTop: "0.5rem" }}>
+            {meta.filter(k => claims[k] != null).map(k => row(k, claims[k]))}
+          </div>
+        </details>
+      )}
+    </div>
   );
 }
 
