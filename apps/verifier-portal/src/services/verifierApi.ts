@@ -1,8 +1,10 @@
 /**
- * Verifier portal service — calls the Verifier Cloud Agent REST API.
- * Note: The verifier agent API is called from the browser directly
- * (no backend needed for the verifier). API key auth is disabled in dev mode.
- * In production, proxy through a backend to keep the verifier API key private.
+ * Verifier portal service — calls the Verifier Cloud Agent REST API
+ * via the issuer-api proxy at /api/verifier/*.
+ *
+ * The proxy is required because the Cloud Agent (port 9000) has no CORS headers,
+ * so direct browser fetch calls are blocked. The proxy at the issuer-api adds
+ * the necessary CORS headers and forwards requests to the agent.
  */
 import type { AgentConnection, AgentPresentationRecord } from "@university-diplomas/common";
 
@@ -15,13 +17,11 @@ export interface ConnectionRecord {
 
 export type PresentationRecord = AgentPresentationRecord;
 
-const VERIFIER_AGENT = import.meta.env.VITE_VERIFIER_AGENT_URL ?? "http://127.0.0.1:9000";
-const VERIFIER_API_KEY = import.meta.env.VITE_VERIFIER_API_KEY ?? "";
+const ISSUER_API = import.meta.env.VITE_ISSUER_API_URL ?? "http://localhost:3002";
+const VERIFIER_AGENT = `${ISSUER_API}/api/verifier`;
 
 function headers(): HeadersInit {
-  const h: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
-  if (VERIFIER_API_KEY) h["apikey"] = VERIFIER_API_KEY;
-  return h;
+  return { "Content-Type": "application/json", Accept: "application/json" };
 }
 
 // ── Connections ────────────────────────────────────────────────────────────────

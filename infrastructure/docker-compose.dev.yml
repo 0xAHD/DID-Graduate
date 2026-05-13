@@ -81,7 +81,7 @@ services:
       PRISM_NODE_HOST: prism-node
       PRISM_NODE_PORT: 50053
       #  URLs (these must resolve from wherever clients connect)
-      POLLUX_STATUS_LIST_REGISTRY_PUBLIC_URL: http://localhost:8000
+      POLLUX_STATUS_LIST_REGISTRY_PUBLIC_URL: http://host.docker.internal:8000
       DIDCOMM_SERVICE_URL: http://localhost:3002/didcomm
       REST_SERVICE_URL: http://localhost:8000
       #  Use postgres for secret storage (avoids requiring HashiCorp Vault)
@@ -128,7 +128,7 @@ services:
       PRISM_NODE_HOST: prism-node
       PRISM_NODE_PORT: 50053
       POLLUX_STATUS_LIST_REGISTRY_PUBLIC_URL: http://localhost:9000
-      DIDCOMM_SERVICE_URL: http://localhost:9001
+      DIDCOMM_SERVICE_URL: http://localhost:3002/didcomm/verifier
       REST_SERVICE_URL: http://localhost:9000
       #  Use postgres for secret storage (avoids requiring HashiCorp Vault)
       SECRET_STORAGE_BACKEND: postgres

@@ -16,6 +16,26 @@ import { BlockFrostAPI } from "@blockfrost/blockfrost-js";
 import { MeshWallet, Transaction, BlockfrostProvider } from "@meshsdk/core";
 import { CARDANO_METADATA_LABEL, CardanoVcHashPayload, CardanoWriteResult } from "@university-diplomas/common";
 
+// ── Serialisation queue ────────────────────────────────────────────────────────
+// Cardano wallets have a single UTXO set. Submitting two transactions that
+// consume the same UTXO in parallel causes the second to fail with
+// "All inputs are spent". We serialize all writes through a simple promise chain
+// and wait 25 seconds after each submission for the block to confirm and the
+// wallet UTXO set to refresh.
+let _writeQueue: Promise<unknown> = Promise.resolve();
+
+const BLOCK_WAIT_MS = 25_000;
+
+function enqueue<T>(fn: () => Promise<T>): Promise<T> {
+  const next = _writeQueue.then(fn, fn); // always advance the chain
+  // After each write (success or failure), pause before releasing the queue
+  _writeQueue = next.then(
+    () => new Promise((r) => setTimeout(r, BLOCK_WAIT_MS)),
+    () => new Promise((r) => setTimeout(r, BLOCK_WAIT_MS)),
+  );
+  return next;
+}
+
 // ── Singleton Blockfrost client ────────────────────────────────────────────────
 let _blockfrost: BlockFrostAPI | null = null;
 
@@ -67,6 +87,31 @@ export function hashVc(vc: unknown): string {
   return crypto.createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
+/**
+ * Returns the wallet address and ADA balance (in lovelace and ADA).
+ * Used by the /api/cardano/wallet-info endpoint for diagnostics.
+ */
+export async function getWalletInfo(): Promise<{
+  address: string;
+  lovelace: string;
+  ada: number;
+  network: string;
+}> {
+  const wallet = await getWallet();
+  const addresses = await wallet.getUsedAddresses();
+  const address = addresses[0] ?? (await wallet.getChangeAddress());
+  const bf = getBlockfrost();
+  const info = await bf.addresses(address);
+  const lovelaceAmount = info.amount.find((a) => a.unit === "lovelace")?.quantity ?? "0";
+  const network = process.env.CARDANO_NETWORK ?? "preprod";
+  return {
+    address,
+    lovelace: lovelaceAmount,
+    ada: Number(lovelaceAmount) / 1_000_000,
+    network,
+  };
+}
+
 /** Recursively sorts all object keys so JSON serialisation is stable. */
 function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeysDeep);
@@ -96,6 +141,12 @@ function sortKeysDeep(value: unknown): unknown {
 export async function writeVcHashToCardano(
   payload: CardanoVcHashPayload
 ): Promise<CardanoWriteResult> {
+  return enqueue(() => _writeVcHashToCardano(payload));
+}
+
+async function _writeVcHashToCardano(
+  payload: CardanoVcHashPayload
+): Promise<CardanoWriteResult> {
   const wallet = await getWallet();
   const addresses = await wallet.getUsedAddresses();
   const changeAddress = addresses[0] ?? (await wallet.getChangeAddress());
@@ -110,6 +161,8 @@ export async function writeVcHashToCardano(
       universityDid: truncate(payload.universityDid, 64),
       universityName: truncate(payload.universityName, 64),
       studentId: truncate(payload.studentId, 64),
+      degree: truncate(payload.degree, 64),
+      ...(payload.gpa != null ? { gpa: payload.gpa } : {}),
       issuedAt: payload.issuedAt,
     },
   };
@@ -153,6 +206,21 @@ export async function writeRevocationToCardano(params: {
   universityDid: string;
   universityName?: string;
   studentId: string;
+  degree?: string;
+  gpa?: string;
+  reason?: string;
+}): Promise<CardanoWriteResult> {
+  return enqueue(() => _writeRevocationToCardano(params));
+}
+
+async function _writeRevocationToCardano(params: {
+  vcHash: string;
+  vcId: string;
+  universityDid: string;
+  universityName?: string;
+  studentId: string;
+  degree?: string;
+  gpa?: string;
   reason?: string;
 }): Promise<CardanoWriteResult> {
   const wallet = await getWallet();
@@ -166,6 +234,8 @@ export async function writeRevocationToCardano(params: {
     universityDid: truncate(params.universityDid, 64),
     universityName: truncate(params.universityName ?? "", 64),
     studentId: truncate(params.studentId, 64),
+    ...(params.degree ? { degree: truncate(params.degree, 64) } : {}),
+    ...(params.gpa != null ? { gpa: params.gpa } : {}),
     revokedAt: new Date().toISOString(),
     ...(params.reason ? { reason: truncate(params.reason, 64) } : {}),
   };

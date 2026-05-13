@@ -93,6 +93,10 @@ export interface CardanoVcHashPayload {
   universityDid: string;
   universityName: string;
   studentId: string;
+  /** e.g. "Bachelor of Science in Computer Science" */
+  degree: string;
+  /** GPA on a 4.0 scale, e.g. "3.85" */
+  gpa?: string;
   issuedAt: string;
 }
 

@@ -238,3 +238,40 @@ export async function saveWalletSeed(
     });
   } catch { /* non-fatal */ }
 }
+
+// ── Diploma share links ────────────────────────────────────────────────────────
+
+export interface ShareResult {
+  token: string;
+  url: string;
+  createdAt: string;
+}
+
+/** Create (or fetch existing) a public share link for a diploma. */
+export async function createDiplomaShare(
+  credentialRecordId: string,
+  token: string
+): Promise<ShareResult> {
+  const res = await fetch(`${API_BASE}/api/share`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ credentialRecordId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? "Failed to create share link");
+  return data as ShareResult;
+}
+
+/** Revoke a share link so it can no longer be accessed. */
+export async function deleteDiplomaShare(
+  shareToken: string,
+  token: string
+): Promise<void> {
+  await fetch(`${API_BASE}/api/share/${encodeURIComponent(shareToken)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}

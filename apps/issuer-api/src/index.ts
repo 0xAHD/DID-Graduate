@@ -8,6 +8,8 @@ import { cardanoRouter } from "./routes/cardano.js";
 import { agentProxyRouter } from "./routes/agentProxy.js";
 import { authRouter } from "./routes/auth.js";
 import { studentsRouter } from "./routes/students.js";
+import { shareRouter } from "./routes/share.js";
+import { verifierProxyRouter } from "./routes/verifierProxy.js";
 import { listStudents, getIssuedCredentials, updateDeliveryState, markCredentialFailed, confirmRevocation } from "./services/studentStore.js";
 
 const app = express();
@@ -30,19 +32,18 @@ app.use(
 );
 app.use(express.json({ limit: "2mb" }));
 
-// ── DIDComm proxy ──────────────────────────────────────────────────────────────
-// The student wallet (browser) sends DIDComm messages to the issuer.
-// Browser → localhost:8001 is blocked by CORS; we proxy via this server which
-// has CORS headers, forwarding raw bytes to the issuer agent's DIDComm port.
-const ISSUER_DIDCOMM_URL = process.env.ISSUER_DIDCOMM_URL ?? "http://127.0.0.1:8001";
-app.post("/didcomm", express.raw({ type: "*/*", limit: "4mb" }), async (req, res) => {
+// ── DIDComm proxies ─────────────────────────────────────────────────────────────
+// The student wallet (browser) sends DIDComm messages to the cloud agents.
+// Direct browser → agent calls are blocked by CORS; we proxy here on the server.
+
+async function didcommProxy(targetUrl: string, req: express.Request, res: express.Response) {
   try {
-    const upstream = await fetch(ISSUER_DIDCOMM_URL, {
+    const upstream = await fetch(targetUrl, {
       method: "POST",
       headers: {
         "Content-Type": req.headers["content-type"] ?? "application/didcomm-encrypted+json",
       },
-      body: req.body as Buffer,
+      body: req.body as unknown as BodyInit,
     });
     const body = await upstream.arrayBuffer();
     res.status(upstream.status);
@@ -54,13 +55,25 @@ app.post("/didcomm", express.raw({ type: "*/*", limit: "4mb" }), async (req, res
     console.error("[didcomm-proxy] error:", msg);
     res.status(502).json({ error: "DIDComm upstream unreachable" });
   }
-});
+}
+
+const ISSUER_DIDCOMM_URL = process.env.ISSUER_DIDCOMM_URL ?? "http://127.0.0.1:8001";
+const VERIFIER_DIDCOMM_URL = process.env.VERIFIER_DIDCOMM_URL ?? "http://127.0.0.1:9001";
+
+app.post("/didcomm", express.raw({ type: "*/*", limit: "4mb" }), (req, res) =>
+  didcommProxy(ISSUER_DIDCOMM_URL, req, res)
+);
+app.post("/didcomm/verifier", express.raw({ type: "*/*", limit: "4mb" }), (req, res) =>
+  didcommProxy(VERIFIER_DIDCOMM_URL, req, res)
+);
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.use("/api/cardano", cardanoRouter);
 app.use("/api/agent", agentProxyRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/students", studentsRouter);
+app.use("/api/share", shareRouter);
+app.use("/api/verifier", verifierProxyRouter);
 
 // ── Health ─────────────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {

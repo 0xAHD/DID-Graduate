@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
-import { Routes, Route, NavLink } from "react-router-dom";
+import { Routes, Route, NavLink, useLocation } from "react-router-dom";
 import { Verify } from "./pages/Verify.js";
 import { History } from "./pages/History.js";
+import { ShareVerify } from "./pages/ShareVerify.js";
 
 const navStyle: CSSProperties = {
   display: "flex",
@@ -20,19 +21,25 @@ const linkStyle = ({ isActive }: { isActive: boolean }): CSSProperties => ({
 });
 
 export default function App() {
+  const location = useLocation();
+  const isSharePage = location.pathname.startsWith("/share/");
+
   return (
     <>
-      <nav style={navStyle}>
-        <span style={{ fontWeight: 700, fontSize: "1.1rem", marginRight: "1rem" }}>
-          ✅ Diploma Verifier Portal
-        </span>
-        <NavLink to="/" style={linkStyle} end>Verify Diploma</NavLink>
-        <NavLink to="/history" style={linkStyle}>History</NavLink>
-      </nav>
-      <main style={{ padding: "2rem", maxWidth: "900px", margin: "0 auto" }}>
+      {!isSharePage && (
+        <nav style={navStyle}>
+          <span style={{ fontWeight: 700, fontSize: "1.1rem", marginRight: "1rem" }}>
+            ✅ Diploma Verifier Portal
+          </span>
+          <NavLink to="/" style={linkStyle} end>Verify Diploma</NavLink>
+          <NavLink to="/history" style={linkStyle}>History</NavLink>
+        </nav>
+      )}
+      <main style={isSharePage ? {} : { padding: "2rem", maxWidth: "900px", margin: "0 auto" }}>
         <Routes>
           <Route path="/" element={<Verify />} />
           <Route path="/history" element={<History />} />
+          <Route path="/share/:token" element={<ShareVerify />} />
         </Routes>
       </main>
     </>
